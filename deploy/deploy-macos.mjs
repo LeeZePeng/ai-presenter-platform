@@ -115,7 +115,18 @@ const run = (command, args, options = {}) => {
   return result.stdout.trim();
 };
 
-const exclusions = ['.env', 'data/', 'logs/', 'out/', 'bin/', 'vendor/', '.git/', 'backups/'];
+const exclusions = [
+  '.env',
+  '.cloudflared/',
+  'data/',
+  'logs/',
+  'out/',
+  'bin/',
+  'vendor/',
+  '.git/',
+  'backups/',
+  'deploy/remotion-runtime/node_modules/',
+];
 const rsyncArgs = (source, destination, extra = []) => [
   '-a',
   '--delete',

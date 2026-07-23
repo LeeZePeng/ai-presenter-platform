@@ -34,7 +34,7 @@ DEPLOY_HEALTH_URL=http://127.0.0.1:4317/api/health
 2. `git fetch` 固定远程和分支，解析远程提交。
 3. 将该提交导出到临时目录，不修改开发 checkout。
 4. 在临时目录执行锁文件安装、类型检查、测试和前端构建。
-5. 用硬链接快照保留上一个运行版本，再同步到生产目录；`.env`、`data`、`logs`、`out`、`bin` 和 `vendor` 保持不变。
+5. 用硬链接快照保留上一个运行版本，再同步到生产目录；`.env`、`.cloudflared`、`data`、`logs`、`out`、`bin`、`vendor` 和独立 Remotion runtime 保持不变。
 6. 重启固定 launchd 服务并等待本机健康检查。
 7. 健康检查失败时自动恢复上一个快照并再次重启。
 
