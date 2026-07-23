@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import hashlib
 import json
 import mimetypes
@@ -11,6 +12,7 @@ import random
 import re
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -90,14 +92,42 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def generation_signature(args: argparse.Namespace) -> dict[str, object]:
+def generation_signature(args: argparse.Namespace, seed: int | None = None) -> dict[str, object]:
     return {
         "width": int(args.width),
         "height": int(args.height),
         "hd_enabled": bool(args.hd_enabled),
         "hd_res": int(args.hd_res),
         "fps": float(args.fps),
+        "steps": int(args.steps),
+        "blocks_to_swap": int(args.blocks_to_swap),
+        "frame_size": int(args.frame_size),
+        "mode": str(args.mode),
+        "positive_prompt": str(args.pos),
+        "negative_prompt": str(args.neg),
+        "camera_control": bool(args.cam_ctrl),
+        "pose_stabilize": bool(args.pose_stabilize),
+        "seed": int(args.seed if seed is None else seed),
     }
+
+
+def parse_workers(args: argparse.Namespace) -> list[tuple[str, str]]:
+    values = list(getattr(args, "worker", None) or [])
+    if not values:
+        return [(str(args.server).rstrip("/"), str(args.comfy_server).rstrip("/"))]
+    workers: list[tuple[str, str]] = []
+    for value in values:
+        server, separator, comfy_server = value.partition(",")
+        server = server.strip().rstrip("/")
+        comfy_server = comfy_server.strip().rstrip("/")
+        if not separator or not server.startswith(("http://", "https://")) or not comfy_server.startswith(
+            ("http://", "https://")
+        ):
+            raise SystemExit("Each --worker must be SERVER_URL,COMFY_URL")
+        pair = (server, comfy_server)
+        if pair not in workers:
+            workers.append(pair)
+    return workers
 
 
 def expected_output_dimensions(args: argparse.Namespace) -> tuple[int, int]:
@@ -537,15 +567,15 @@ def segmented_submit(args: argparse.Namespace) -> dict:
         max_seconds=args.max_segment_seconds,
         silence_points=detect_silence_points(args.audio),
     )
-    segment_videos: list[Path] = []
-    receipt_paths: list[Path] = []
-    segment_audio_hashes: list[str] = []
-    segment_video_hashes: list[str] = []
-    prompt_ids: list[str] = []
+    workers = parse_workers(args)
     requested_dimensions = (int(args.width), int(args.height))
     expected_dimensions = expected_output_dimensions(args)
+    expected_generation = generation_signature(args, seed=seed)
+    records: dict[int, dict[str, object]] = {}
+    manifest_lock = threading.Lock()
 
-    def write_manifest(completed: int) -> None:
+    def write_manifest() -> None:
+        ordered = [records[index] for index in sorted(records)]
         manifest = {
             "provider": "InfiniteTalk",
             "audio": str(args.audio.resolve()),
@@ -560,27 +590,36 @@ def segmented_submit(args: argparse.Namespace) -> dict:
                 {"index": index + 1, "start": start, "duration": segment_duration}
                 for index, (start, segment_duration) in enumerate(segments)
             ],
-            "completed_segments": completed,
-            "presenterSegmentPaths": [str(path.resolve()) for path in segment_videos],
-            "infiniteTalkReceiptPaths": [str(path.resolve()) for path in receipt_paths],
-            "segmentAudioSha256s": segment_audio_hashes,
-            "segmentVideoSha256s": segment_video_hashes,
-            "promptIds": prompt_ids,
+            "worker_count": len(workers),
+            "workers": [{"server": server, "comfy_server": comfy} for server, comfy in workers],
+            "completed_segments": len(ordered),
+            "presenterSegmentPaths": [str(record["video"]) for record in ordered],
+            "infiniteTalkReceiptPaths": [str(record["receipt"]) for record in ordered],
+            "segmentAudioSha256s": [str(record["audio_sha256"]) for record in ordered],
+            "segmentVideoSha256s": [str(record["video_sha256"]) for record in ordered],
+            "promptIds": [str(record["prompt_id"]) for record in ordered],
             "output": str(args.output_video.resolve()),
         }
         manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2))
 
-    write_manifest(0)
-    for index, (start, segment_duration) in enumerate(segments, start=1):
+    def process_segment(
+        index: int,
+        start: float,
+        segment_duration: float,
+        worker_index: int,
+        worker: tuple[str, str],
+    ) -> dict[str, object]:
+        server, comfy_server = worker
         segment_dir = checkpoint_dir / "segments" / f"segment-{index:03d}"
         receipt_path = segment_dir / "result.json"
+        worker_path = segment_dir / "worker.json"
         audio_path = segment_dir / "audio.wav"
         split_audio(args.audio, audio_path, start, segment_duration)
         segment_audio_hash = file_sha256(audio_path)
         video = existing_segment_video(receipt_path, segment_dir, expected_dimensions)
         if not video:
             video = recover_segment_video(
-                args.comfy_server,
+                comfy_server,
                 receipt_path,
                 segment_dir,
                 segment_audio_hash,
@@ -593,10 +632,8 @@ def segmented_submit(args: argparse.Namespace) -> dict:
             segment_video_hash = file_sha256(video)
             invalid = {
                 "missing_prompt_id": not prompt_id,
-                "duplicate_prompt_id": bool(prompt_id and prompt_id in prompt_ids),
-                "duplicate_video_sha256": segment_video_hash in segment_video_hashes,
                 "audio_sha256_mismatch": receipt.get("audio_sha256") != segment_audio_hash,
-                "generation_mismatch": receipt.get("generation") != generation_signature(args),
+                "generation_mismatch": receipt.get("generation") != expected_generation,
                 "duration_mismatch": abs(media_duration(video) - segment_duration) > 1.25,
                 "dimension_mismatch": media_dimensions(video) != expected_dimensions,
             }
@@ -610,8 +647,17 @@ def segmented_submit(args: argparse.Namespace) -> dict:
         if video:
             print_json({"step": "segment_skipped", "segment": index, "total": len(segments), "video": str(video)})
         else:
-            check_services(args.server, args.comfy_server)
+            check_services(server, comfy_server)
+            worker_path.write_text(
+                json.dumps(
+                    {"worker_index": worker_index, "server": server, "comfy_server": comfy_server},
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
             submit_args = argparse.Namespace(**vars(args))
+            submit_args.server = server
+            submit_args.comfy_server = comfy_server
             submit_args.audio1 = audio_path
             submit_args.audio2 = None
             submit_args.audio2_mode = "none"
@@ -624,24 +670,23 @@ def segmented_submit(args: argparse.Namespace) -> dict:
                     "total": len(segments),
                     "start": start,
                     "duration": segment_duration,
+                    "worker": worker_index,
                 }
             )
             result = submit(submit_args)
             video = existing_segment_video(receipt_path, segment_dir, expected_dimensions)
             if not result.get("saved") or not video:
-                write_manifest(index - 1)
                 raise SystemExit(f"InfiniteTalk segment {index}/{len(segments)} did not return a valid MP4")
             result["audio_sha256"] = segment_audio_hash
+            result["worker_index"] = worker_index
+            result["server"] = server
+            result["comfy_server"] = comfy_server
             receipt_path.write_text(json.dumps(result, ensure_ascii=False, indent=2))
             receipt = result
         prompt_id = str(receipt.get("prompt_id") or "")
         segment_video_hash = file_sha256(video)
         if not prompt_id:
             raise SystemExit(f"InfiniteTalk segment {index}/{len(segments)} has no prompt_id")
-        if prompt_id in prompt_ids:
-            raise SystemExit(f"InfiniteTalk segment {index}/{len(segments)} reused prompt_id {prompt_id}")
-        if segment_video_hash in segment_video_hashes:
-            raise SystemExit(f"InfiniteTalk segment {index}/{len(segments)} duplicated a previous video")
         if abs(media_duration(video) - segment_duration) > 1.25:
             raise SystemExit(f"InfiniteTalk segment {index}/{len(segments)} duration does not match its audio")
         if media_dimensions(video) != expected_dimensions:
@@ -649,12 +694,45 @@ def segmented_submit(args: argparse.Namespace) -> dict:
                 f"InfiniteTalk segment {index}/{len(segments)} dimensions do not match "
                 f"{expected_dimensions[0]}x{expected_dimensions[1]}"
             )
-        segment_videos.append(video)
-        receipt_paths.append(receipt_path.resolve())
-        segment_audio_hashes.append(segment_audio_hash)
-        segment_video_hashes.append(segment_video_hash)
-        prompt_ids.append(prompt_id)
-        write_manifest(index)
+        return {
+            "index": index,
+            "video": str(video.resolve()),
+            "receipt": str(receipt_path.resolve()),
+            "audio_sha256": segment_audio_hash,
+            "video_sha256": segment_video_hash,
+            "prompt_id": prompt_id,
+        }
+
+    def process_worker(worker_index: int, items: list[tuple[int, float, float]]) -> None:
+        worker = workers[worker_index]
+        for index, start, segment_duration in items:
+            record = process_segment(index, start, segment_duration, worker_index, worker)
+            with manifest_lock:
+                records[index] = record
+                write_manifest()
+
+    assignments: list[list[tuple[int, float, float]]] = [[] for _ in workers]
+    for index, (start, segment_duration) in enumerate(segments, start=1):
+        assignments[(index - 1) % len(workers)].append((index, start, segment_duration))
+
+    write_manifest()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(workers), thread_name_prefix="infinite-talk") as executor:
+        futures = [
+            executor.submit(process_worker, worker_index, items)
+            for worker_index, items in enumerate(assignments)
+            if items
+        ]
+        for future in concurrent.futures.as_completed(futures):
+            future.result()
+
+    ordered_records = [records[index] for index in range(1, len(segments) + 1)]
+    prompt_ids = [str(record["prompt_id"]) for record in ordered_records]
+    segment_video_hashes = [str(record["video_sha256"]) for record in ordered_records]
+    if len(set(prompt_ids)) != len(prompt_ids):
+        raise SystemExit("InfiniteTalk segments reused a prompt ID")
+    if len(set(segment_video_hashes)) != len(segment_video_hashes):
+        raise SystemExit("InfiniteTalk segments returned duplicate videos")
+    segment_videos = [Path(str(record["video"])) for record in ordered_records]
 
     stitch_segments(
         segment_videos,
@@ -667,7 +745,7 @@ def segmented_submit(args: argparse.Namespace) -> dict:
     )
     if not valid_video(args.output_video):
         raise SystemExit("Segment stitching did not produce a valid MP4")
-    write_manifest(len(segments))
+    write_manifest()
     return json.loads(manifest_path.read_text())
 
 
@@ -889,6 +967,11 @@ def main() -> int:
     )
     segmented_parser.add_argument("--server", default=DEFAULT_SERVER)
     segmented_parser.add_argument("--comfy-server", default=DEFAULT_COMFY)
+    segmented_parser.add_argument(
+        "--worker",
+        action="append",
+        help="Repeat SERVER_URL,COMFY_URL to process independent segments concurrently",
+    )
     segmented_parser.add_argument("--person-img", type=Path, required=True)
     segmented_parser.add_argument("--ref-video", type=Path, required=True)
     segmented_parser.add_argument("--audio", type=Path, required=True)

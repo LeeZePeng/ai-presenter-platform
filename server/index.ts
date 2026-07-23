@@ -1,6 +1,7 @@
 import {createHash, randomUUID, timingSafeEqual} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync} from 'node:fs';
+import {createRequire} from 'node:module';
 import path from 'node:path';
 import express, {type NextFunction, type Request, type Response} from 'express';
 import rateLimit from 'express-rate-limit';
@@ -23,6 +24,8 @@ import type {JobAssets, PresenterAsset, PresenterAssetKind} from './types.js';
 
 assertProductionConfiguration();
 
+const ffprobePath = (createRequire(import.meta.url)('@ffprobe-installer/ffprobe') as {path: string}).path;
+
 const incomingDir = path.join(config.dataDir, 'incoming');
 const jobsDir = path.join(config.dataDir, 'jobs');
 const libraryDir = path.join(config.dataDir, 'presenter-library');
@@ -36,7 +39,7 @@ mkdirSync(youtubeImportsDir, {recursive: true});
 
 const probeMediaDuration = (file: string): number => {
   const result = spawnSync(
-    'ffprobe',
+    ffprobePath,
     ['-v', 'error', '-show_entries', 'format=duration', '-of', 'json', file],
     {encoding: 'utf8', timeout: 15_000, maxBuffer: 1024 * 1024},
   );
@@ -47,6 +50,27 @@ const probeMediaDuration = (file: string): number => {
     return duration;
   } catch {
     throw new Error('无法读取上传媒体时长，请检查文件格式');
+  }
+};
+
+const probeImageDimensions = (file: string): {width: number; height: number} => {
+  const result = spawnSync(
+    ffprobePath,
+    ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'json', file],
+    {encoding: 'utf8', timeout: 15_000, maxBuffer: 1024 * 1024},
+  );
+  try {
+    const stream = (JSON.parse(result.stdout) as {streams?: Array<{width?: number; height?: number}>}).streams?.[0];
+    const width = Number(stream?.width);
+    const height = Number(stream?.height);
+    if (result.status !== 0 || !Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+      throw new Error();
+    }
+    if (width / height > 4 || height / width > 4) throw new Error('人物图片宽高比不能超过 4:1');
+    return {width, height};
+  } catch (error) {
+    if (error instanceof Error && error.message === '人物图片宽高比不能超过 4:1') throw error;
+    throw new Error('无法读取人物图片尺寸，请检查图片是否完整');
   }
 };
 
@@ -72,6 +96,7 @@ const worker = new JobWorker(db, power, runner, transcriber, {
   skillPath: config.codex.skillPath,
   presenterApiUrl: config.presenterApiUrl,
   presenterComfyUrl: config.presenterComfyUrl,
+  presenterWorkers: config.presenterWorkers,
   remotionRuntimeDir: config.remotionRuntimeDir,
   remotionSkillPath: config.remotionSkillPath,
   remotionBrowserExecutable: config.remotionBrowserExecutable,
@@ -699,7 +724,9 @@ app.post(
           durationSeconds: probeMediaDuration(assets.voiceReference),
         }));
       }
-      const job = db.createJob(id, input, youtubeMetadata);
+      const metadata: Record<string, unknown> = {...(youtubeMetadata ?? {})};
+      if (assets.avatarImage) metadata.avatarDimensions = probeImageDimensions(assets.avatarImage);
+      const job = db.createJob(id, input, metadata);
       power.requestPowerForQueuedJob(id);
       res.status(202).json({job: publicJob(job), savedAssets: savedAssets.map(publicPresenterAsset)});
     } catch (error) {

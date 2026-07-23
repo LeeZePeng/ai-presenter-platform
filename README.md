@@ -44,8 +44,8 @@ Codex CLI + gpt-5.6-sol + AI 口播 skill
 - 按首个启动请求建立一小时计费窗口，只在窗口边界检查关机。
 - Codex JSONL 事件解析、进度展示、超时和取消。
 - InfiniteTalk 回执和真实口型成片硬验收，禁止静态图片动画降级为成功任务。
-- InfiniteTalk 使用 OOM 安全尺寸生成，最终按画幅高质量导出到 1080p 画布。
-- 超过 20 秒的口播按约 19.5 秒串行分段生成，每段独立保存 MP4 和回执，失败重试只补未完成分段。单人 48GB GPU 在 `blocks_to_swap=10` 时实测仅占 23.8GB，因此生产档改用 `blocks_to_swap=0`、10 秒轮询和 240 次上限，以减少 CPU/GPU 搬运并保留 40 分钟单段等待窗口。
+- InfiniteTalk 使用 OOM 安全尺寸生成；真人主画面完成口型后用 `4xNomosWebPhoto_RealPLKSR` 分块 AI 高清化，再按人物原图画布或所选画幅精确导出。
+- 超过 20 秒的口播按约 19.5 秒分段；`AI_PRESENTER_GPU_WORKERS=4` 时在 4 张卡上并行、同一卡内串行。每段独立保存 MP4 和回执，失败重试只补未完成分段。生产档使用 `blocks_to_swap=0`、10 秒轮询和 240 次上限，减少 CPU/GPU 搬运并保留 40 分钟单段等待窗口。
 - 最终成片默认使用 Remotion 组合真实口型人物、原片录屏/产品画面、信息卡和章节进度；禁止整段退化为单一全屏口播。
 - 16:9 复刻在原片没有明确人物布局时，默认使用不遮挡 UI 的圆形头肩数字人 PIP。
 - UI 文字只使用已核对文案或原片内容，图片/视频生成模型不得绘制文字，避免乱码和字幕错位。
@@ -112,6 +112,7 @@ COMPSHARE_ZONE=cn-wlcb-01
 GPU_HEALTH_URL=http://<digital-human-host>:7860/
 AI_PRESENTER_API_URL=http://<digital-human-host>:7860
 AI_PRESENTER_COMFY_URL=http://<digital-human-host>:8188
+AI_PRESENTER_GPU_WORKERS=4
 ASR_BIN=/var/lib/ai-presenter/runtime/whisper/whisper-cli
 ASR_MODEL=/var/lib/ai-presenter/runtime/whisper/ggml-small.bin
 ASR_LANGUAGE=auto
@@ -196,7 +197,7 @@ API key 只从 systemd 环境中的 `MODELVERSE_API_KEY` 读取，不写入 Code
 sudo bash deploy/install-whisper-runtime.sh
 ```
 
-复刻任务只有在 `out/analysis/source_transcript.json` 成功生成并锁定 SHA-256 后才会启动 GPU。20 秒以内任务通过 `infinite_talk_api.py submit` 生成；更长任务必须通过 `segmented-submit` 串行生成并保存检查点。单段或分段缺少 InfiniteTalk MP4/原始回执都会标记失败，不允许静态图缩放、平移或假嘴型降级。
+复刻任务只有在 `out/analysis/source_transcript.json` 成功生成并锁定 SHA-256 后才会启动 GPU。20 秒以内任务通过 `infinite_talk_api.py submit` 生成；更长任务通过 `segmented-submit` 在配置的 GPU worker 间并行、并保存可恢复检查点。云端只暴露原有 `7860/8188` 两个入口，`/w1`、`/w2`、`/w3` 由路径路由到其他卡，避免增加公网端口。单段或分段缺少 InfiniteTalk MP4/原始回执都会标记失败，不允许静态图缩放、平移或假嘴型降级。
 
 完整复刻会读取原片实测时长，当前支持最长 30 分钟，不会继承旧版 120 秒摘要上限。worker 只对完整复刻验收原文覆盖率；精简复刻只验收最终保留内容的原片依据和顺序。两种模式都会验收最终旁白时长、逐句视觉 cue、数字人分段独立性、封面尺寸和发布文案完整性。
 

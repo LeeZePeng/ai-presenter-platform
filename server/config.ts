@@ -18,6 +18,16 @@ const number = (name: string, fallback: number): number => {
 const expandHome = (value: string): string =>
   value.startsWith('~/') ? path.join(os.homedir(), value.slice(2)) : path.resolve(value);
 
+const presenterApiUrl = env.AI_PRESENTER_API_URL?.trim() || 'http://106.75.239.93:7860';
+const presenterComfyUrl = env.AI_PRESENTER_COMFY_URL?.trim() || 'http://106.75.239.93:8188';
+const presenterWorkerCount = Math.min(4, Math.max(1, Math.floor(number('AI_PRESENTER_GPU_WORKERS', 1))));
+const workerUrl = (base: string, index: number): string => {
+  if (index === 0) return base.replace(/\/$/, '');
+  const url = new URL(base);
+  url.pathname = `${url.pathname.replace(/\/$/, '')}/w${index}`;
+  return url.toString().replace(/\/$/, '');
+};
+
 export const config = {
   port: number('PORT', 4317),
   host: env.HOST?.trim() || '0.0.0.0',
@@ -43,8 +53,12 @@ export const config = {
   powerTickMs: number('POWER_TICK_SECONDS', 15) * 1000,
   gpuStartTimeoutMs: number('GPU_START_TIMEOUT_SECONDS', 1200) * 1000,
   gpuHealthUrl: env.GPU_HEALTH_URL?.trim() ?? '',
-  presenterApiUrl: env.AI_PRESENTER_API_URL?.trim() || 'http://106.75.239.93:7860',
-  presenterComfyUrl: env.AI_PRESENTER_COMFY_URL?.trim() || 'http://106.75.239.93:8188',
+  presenterApiUrl,
+  presenterComfyUrl,
+  presenterWorkers: Array.from({length: presenterWorkerCount}, (_, index) => ({
+    server: workerUrl(presenterApiUrl, index),
+    comfyServer: workerUrl(presenterComfyUrl, index),
+  })),
   remotionRuntimeDir: path.resolve(env.REMOTION_RUNTIME_DIR ?? '/var/lib/ai-presenter/runtime/remotion-4.0.490'),
   remotionSkillPath: path.resolve(
     env.REMOTION_SKILL_PATH ?? '/var/lib/ai-presenter/.codex/skills/remotion-best-practices',

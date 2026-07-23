@@ -467,7 +467,7 @@ export const App = () => {
   const [topic, setTopic] = useState('');
   const [script, setScript] = useState('');
   const [duration, setDuration] = useState(120);
-  const [ratio, setRatio] = useState<'16:9' | '9:16' | '1:1'>('16:9');
+  const [ratio, setRatio] = useState<'16:9' | '9:16' | '1:1' | 'avatar'>('16:9');
   const [style, setStyle] = useState('自然专业');
   const [voiceMode, setVoiceMode] = useState<VoiceMode>('original_clone');
   const [avatar, setAvatar] = useState<File | null>(null);
@@ -1173,7 +1173,7 @@ export const App = () => {
                       onChange={(file) => { setAvatar(file); setAvatarAssetId(''); setAvatarAssetName(file?.name.replace(/\.[^.]+$/, '') ?? ''); setStepError(''); }}
                     />
                   </div>
-                  {presenterPrimaryStyle && <p className="presenter-style-hint"><ImageIcon size={15} />此风格以这里选择或上传的人物图片为唯一形象来源，并按 16:9、9:16 或 1:1 生成对应人物主画面。</p>}
+                  {presenterPrimaryStyle && <p className="presenter-style-hint"><ImageIcon size={15} />此风格以这里选择或上传的人物图片为唯一形象来源；可选择“跟随人物图”，让成片保持原图宽高比和像素尺寸。</p>}
                   {avatar && (
                     <div className="save-asset-row">
                       <label><input type="checkbox" checked={saveAvatarAsset} onChange={(event) => setSaveAvatarAsset(event.target.checked)} /><Save size={15} />保存到形象库</label>
@@ -1218,11 +1218,11 @@ export const App = () => {
                       <div className="advanced-panel">
                         <div className="two-columns">
                           <label>任务名称<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="自动使用内容摘要" /></label>
-                          <label>画面风格<select value={style} onChange={(event) => { setStyle(event.target.value); setStepError(''); }}><option>自然专业</option><option value="真人主画面·悬浮组件">真人主画面·悬浮组件（需人物图）</option><option>科技冷静</option><option>亲切生活化</option><option>高能短视频</option><option>电影访谈</option></select></label>
+                          <label>画面风格<select value={style} onChange={(event) => { const nextStyle = event.target.value; setStyle(nextStyle); if (nextStyle === '真人主画面·悬浮组件') setRatio('avatar'); else if (ratio === 'avatar') setRatio('16:9'); setStepError(''); }}><option>自然专业</option><option value="真人主画面·悬浮组件">真人主画面·悬浮组件（需人物图）</option><option>科技冷静</option><option>亲切生活化</option><option>高能短视频</option><option>电影访谈</option></select></label>
                         </div>
                         <div className={`advanced-grid ${voice || selectedVoiceAsset ? 'single-column' : ''}`}>
                           {!(voice || selectedVoiceAsset) && <label>默认声音来源<select value={voiceMode} onChange={(event) => chooseVoiceMode(event.target.value as VoiceMode)}>{mode === 'clone' && <option value="original_clone">克隆参考视频声音</option>}<option value="system_voice">系统高质量声音</option></select></label>}
-                          <div className="setting-control"><span>画幅比例</span><div className="segmented ratio-segmented">{(['16:9', '9:16', '1:1'] as const).map((item) => <button type="button" key={item} className={ratio === item ? 'active' : ''} onClick={() => setRatio(item)}>{item}</button>)}</div></div>
+                          <div className="setting-control"><span>画幅比例</span><div className="segmented ratio-segmented">{(['16:9', '9:16', '1:1', ...(presenterPrimaryStyle ? ['avatar' as const] : [])] as const).map((item) => <button type="button" key={item} className={ratio === item ? 'active' : ''} onClick={() => setRatio(item)}>{item === 'avatar' ? '跟随人物图' : item}</button>)}</div></div>
                         </div>
                         {mode !== 'clone' && (
                           <div className="file-grid advanced-file-grid">

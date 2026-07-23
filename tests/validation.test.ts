@@ -51,6 +51,18 @@ describe('parseJobInput', () => {
     ).toBe('/tmp/avatar.png');
   });
 
+  it('allows the final canvas to follow the avatar only for presenter-primary composition', () => {
+    expect(
+      parseJobInput(
+        {...base, aspectRatio: 'avatar', style: '真人主画面·悬浮组件'},
+        {avatarImage: '/tmp/avatar.png'},
+      ).aspectRatio,
+    ).toBe('avatar');
+    expect(() =>
+      parseJobInput({...base, aspectRatio: 'avatar'}, {avatarImage: '/tmp/avatar.png'}),
+    ).toThrow('仅支持真人主画面风格');
+  });
+
   it('defaults clone jobs to exact replication and supports explicit condensation', () => {
     const exact = parseJobInput({...base, mode: 'clone'}, {sourceVideo: '/tmp/source.mp4'});
     const condensed = parseJobInput(

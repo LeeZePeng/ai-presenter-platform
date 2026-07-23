@@ -53,7 +53,7 @@ describe('buildCodexPrompt', () => {
     expect(prompt).toContain('prepare-assets --source-image');
     expect(prompt).toContain('--width 480 --height 832');
     expect(prompt).toContain('--audio2-mode none');
-    expect(prompt).toContain('最终导出尺寸固定为 1920x1080');
+    expect(prompt).toContain('最终导出尺寸必须为 1920x1080');
     expect(prompt).toContain('禁止用静态图片循环');
     expect(prompt).toContain('InfiniteTalk 没有返回真实 MP4');
     expect(prompt).toContain('禁止运行 env、printenv');
@@ -62,7 +62,7 @@ describe('buildCodexPrompt', () => {
     expect(prompt).toContain('--blocks-to-swap 0');
     expect(prompt).toContain('--poll-seconds 10');
     expect(prompt).toContain('--max-polls 240');
-    expect(prompt).toContain('普通 PIP 风格不得传入 --hd-enabled');
+    expect(prompt).toContain('所有风格都不得传入 --hd-enabled');
     expect(prompt).toContain('presenterSegmentPaths 和 infiniteTalkReceiptPaths');
     expect(prompt).toContain('normalize_presenter_segments.py');
     expect(prompt).toContain('presenterRenderPaths');
@@ -194,10 +194,10 @@ describe('buildCodexPrompt', () => {
       },
     );
     expect(presenterPrimaryPrompt).toContain('--width 832 --height 480');
-    expect(presenterPrimaryPrompt).toContain('--layout landscape --width 1280 --height 720');
-    expect(presenterPrimaryPrompt).toContain('--hd-enabled --hd-res 720');
-    expect(presenterPrimaryPrompt).toContain('infinite_talk-hd720');
-    expect(presenterPrimaryPrompt).toContain('1248x720 输出尺寸');
+    expect(presenterPrimaryPrompt).toContain('--layout landscape --width 1248 --height 720');
+    expect(presenterPrimaryPrompt).not.toContain('--hd-enabled --hd-res 720');
+    expect(presenterPrimaryPrompt).toContain('/checkpoints/infinite_talk');
+    expect(presenterPrimaryPrompt).toContain('832x480 输出尺寸');
     expect(presenterPrimaryPrompt).toContain('avatarImage（/jobs/job-1/assets/avatar.jpg）是唯一人物身份来源');
     expect(presenterPrimaryPrompt).toContain('prepare-assets --source-image "/jobs/job-1/assets/avatar.jpg"');
     expect(presenterPrimaryPrompt).toContain('data-layout-style="presenter-primary-floating-ui"');
@@ -223,7 +223,34 @@ describe('buildCodexPrompt', () => {
       },
     );
     expect(portraitPresenterPrimaryPrompt).toContain('--width 480 --height 832');
-    expect(portraitPresenterPrimaryPrompt).toContain('--layout portrait --width 720 --height 1280');
-    expect(portraitPresenterPrimaryPrompt).toContain('720x1248 输出尺寸');
+    expect(portraitPresenterPrimaryPrompt).toContain('--layout portrait --width 720 --height 1248');
+    expect(portraitPresenterPrimaryPrompt).toContain('480x832 输出尺寸');
+
+    const avatarCanvasPrompt = buildCodexPrompt(
+      {
+        ...job,
+        aspectRatio: 'avatar',
+        style: '真人主画面·悬浮组件',
+        metadata: {avatarDimensions: {width: 3024, height: 4032}},
+      },
+      '/jobs/job-1',
+      {
+        skillPath: '/skills/ai-presenter-video-replica',
+        presenterApiUrl: 'http://presenter:7860',
+        presenterComfyUrl: 'http://presenter:8188',
+        remotionRuntimeDir: '/runtime/remotion',
+        remotionSkillPath: '/skills/remotion-best-practices',
+        remotionBrowserExecutable: '/runtime/headless-shell',
+        remotionFontDir: '/jobs/job-1/remotion/public/fonts',
+        asrBin: '/runtime/whisper-cli',
+        asrModel: '/runtime/ggml-small.bin',
+        asrLanguage: 'zh',
+        asrThreads: 8,
+        sourceTranscriptPath: undefined,
+      },
+    );
+    expect(avatarCanvasPrompt).toContain('最终画布跟随上传人物图：原图 3024x4032');
+    expect(avatarCanvasPrompt).toContain('最终导出尺寸必须为 3024x4032');
+    expect(avatarCanvasPrompt).toContain('--width 544 --height 736');
   });
 });

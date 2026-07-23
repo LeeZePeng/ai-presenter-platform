@@ -14,7 +14,7 @@ const formSchema = z.object({
   topic: z.string().trim().max(2000).default(''),
   script: z.string().trim().max(10000).default(''),
   durationSeconds: z.coerce.number().int().min(1).max(1800).default(120),
-  aspectRatio: z.enum(['16:9', '9:16', '1:1']),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1', 'avatar']),
   style: z.string().trim().min(1).max(100),
   voiceMode: z.enum(['original_clone', 'uploaded_audio', 'uploaded_reference', 'system_voice']).optional(),
   rightsConfirmed: z
@@ -34,6 +34,9 @@ export const parseJobInput = (body: Record<string, unknown>, assets: JobAssets):
   if (parsed.mode === 'clone' && !assets.sourceVideo) throw new Error('复刻模式需要上传参考视频');
   if (parsed.style === '真人主画面·悬浮组件' && !assets.avatarImage) {
     throw new Error('“真人主画面·悬浮组件”需要上传或选择人物图片');
+  }
+  if (parsed.aspectRatio === 'avatar' && parsed.style !== '真人主画面·悬浮组件') {
+    throw new Error('“跟随人物图”画幅仅支持真人主画面风格');
   }
   if (!assets.avatarImage && !assets.sourceVideo) throw new Error('请上传人物形象图片或参考视频');
   if (voiceMode === 'original_clone' && !assets.sourceVideo) {

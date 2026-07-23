@@ -7,7 +7,7 @@ export type JobStatus =
   | 'succeeded'
   | 'failed'
   | 'cancelled';
-export type AspectRatio = '16:9' | '9:16' | '1:1';
+export type AspectRatio = '16:9' | '9:16' | '1:1' | 'avatar';
 export type VoiceMode = 'original_clone' | 'uploaded_audio' | 'uploaded_reference' | 'system_voice';
 export type PresenterAssetKind = 'avatar' | 'voice';
 

@@ -21,6 +21,7 @@ type WorkerOptions = {
   skillPath: string;
   presenterApiUrl: string;
   presenterComfyUrl: string;
+  presenterWorkers: Array<{server: string; comfyServer: string}>;
   remotionRuntimeDir: string;
   remotionSkillPath: string;
   remotionBrowserExecutable: string;
@@ -207,6 +208,7 @@ export class JobWorker {
         skillPath: this.options.skillPath,
         presenterApiUrl: this.options.presenterApiUrl,
         presenterComfyUrl: this.options.presenterComfyUrl,
+        presenterWorkers: this.options.presenterWorkers,
         remotionRuntimeDir: this.options.remotionRuntimeDir,
         remotionSkillPath: this.options.remotionSkillPath,
         remotionBrowserExecutable: this.options.remotionBrowserExecutable,

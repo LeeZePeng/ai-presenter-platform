@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import unittest
 from pathlib import Path
@@ -37,6 +38,35 @@ class PromptIdRecoveryTest(unittest.TestCase):
     def test_ambiguous_prefix_is_rejected(self) -> None:
         with self.assertRaises(SystemExit):
             MODULE.matching_prompt_id("58c6225f", ["58c6225f-a", "58c6225f-b"])
+
+
+class WorkerPoolTest(unittest.TestCase):
+    def test_default_worker_uses_legacy_endpoints(self) -> None:
+        args = argparse.Namespace(server="http://gpu:7860/", comfy_server="http://gpu:8188/", worker=None)
+        self.assertEqual(MODULE.parse_workers(args), [("http://gpu:7860", "http://gpu:8188")])
+
+    def test_repeated_workers_are_deduplicated(self) -> None:
+        args = argparse.Namespace(
+            server="unused",
+            comfy_server="unused",
+            worker=[
+                "http://gpu:7860,http://gpu:8188",
+                "http://gpu:7860/w1,http://gpu:8188/w1",
+                "http://gpu:7860/w1,http://gpu:8188/w1",
+            ],
+        )
+        self.assertEqual(
+            MODULE.parse_workers(args),
+            [
+                ("http://gpu:7860", "http://gpu:8188"),
+                ("http://gpu:7860/w1", "http://gpu:8188/w1"),
+            ],
+        )
+
+    def test_invalid_worker_is_rejected(self) -> None:
+        args = argparse.Namespace(server="unused", comfy_server="unused", worker=["http://gpu:7860"])
+        with self.assertRaises(SystemExit):
+            MODULE.parse_workers(args)
 
 
 if __name__ == "__main__":

@@ -36,7 +36,7 @@ export type Job = {
   topic: string;
   script: string;
   durationSeconds: number;
-  aspectRatio: '16:9' | '9:16' | '1:1';
+  aspectRatio: '16:9' | '9:16' | '1:1' | 'avatar';
   style: string;
   voiceMode: string;
   status: JobStatus;

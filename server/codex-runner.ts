@@ -3,6 +3,7 @@ import {createHash} from 'node:crypto';
 import {existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {resolvePresenterLayout} from './presenter-layout.js';
 import {DatabaseSync} from 'node:sqlite';
 import {selectWorkingUsProxy} from './codex-proxy.js';
 import type {JobRecord} from './types.js';
@@ -1971,6 +1972,15 @@ export class CodexRunner {
     const cover = resolveWorkspacePath(workspace, manifest.coverPath, 'coverPath');
     if (!existsSync(cover) || statSync(cover).size <= 10_000) throw new Error('缺少高质量发布封面');
     const outputDimensions = probeDimensions(expected);
+    const expectedLayout = resolvePresenterLayout(job);
+    if (
+      outputDimensions.width !== expectedLayout.final.width ||
+      outputDimensions.height !== expectedLayout.final.height
+    ) {
+      throw new Error(
+        `最终视频尺寸必须为 ${expectedLayout.final.width}x${expectedLayout.final.height}，当前为 ${outputDimensions.width}x${outputDimensions.height}`,
+      );
+    }
     const coverDimensions = probeDimensions(cover);
     if (coverDimensions.width !== outputDimensions.width || coverDimensions.height !== outputDimensions.height) {
       throw new Error('发布封面尺寸与最终视频画幅不一致');
@@ -2402,9 +2412,17 @@ export class CodexRunner {
     if (presenterRenderPaths.length !== Math.max(1, rawSegments.length)) {
       throw new Error('Remotion 数字人规范化素材数量与 InfiniteTalk 原始分段不一致');
     }
+    const presenterLayout = resolvePresenterLayout(job);
     for (const renderPath of presenterRenderPaths) {
       const dimensions = probeDimensions(renderPath);
-      if (dimensions.width !== dimensions.height) throw new Error('Remotion 数字人规范化素材必须为正方形');
+      if (
+        dimensions.width !== presenterLayout.normalized.width ||
+        dimensions.height !== presenterLayout.normalized.height
+      ) {
+        throw new Error(
+          `Remotion 数字人规范化素材必须为 ${presenterLayout.normalized.width}x${presenterLayout.normalized.height}`,
+        );
+      }
       if (hasAudioStream(renderPath)) throw new Error('Remotion 数字人规范化素材不应包含音轨');
     }
     if (rawSegments.length || rawReceipts.length) {

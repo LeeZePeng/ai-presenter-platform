@@ -105,6 +105,7 @@ export const createRetryJob = (
     };
     const retryCount = Number(source.metadata.retryCount ?? 0) + 1;
     const job = db.createJob(retryId, input, {
+      avatarDimensions: source.metadata.avatarDimensions,
       retryOf: source.id,
       retryRootId,
       retryCount,
@@ -157,6 +158,7 @@ export const createFullRegenerationJob = (
     };
     const retryCount = Number(source.metadata.retryCount ?? 0) + 1;
     const job = db.createJob(retryId, input, {
+      avatarDimensions: source.metadata.avatarDimensions,
       retryOf: source.id,
       retryRootId,
       retryCount,
@@ -239,6 +241,7 @@ export const createVisualRepairJob = (
       ? createHash('sha256').update(readFileSync(retryTranscript)).digest('hex')
       : source.metadata.sourceTranscriptSha256;
     const job = db.createJob(retryId, input, {
+      avatarDimensions: source.metadata.avatarDimensions,
       retryOf: source.id,
       retryRootId,
       retryCount,

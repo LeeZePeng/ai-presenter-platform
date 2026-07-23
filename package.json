@@ -17,6 +17,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@ffprobe-installer/ffprobe": "^2.1.2",
     "@fontsource-variable/space-grotesk": "^5.2.10",
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@tsparticles/engine": "^4.3.2",
