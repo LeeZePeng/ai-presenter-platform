@@ -1,12 +1,51 @@
-# AI 口播工厂开发与运维文档
+# AI 口播工厂开发者指南
 
-> 文档版本：1.0<br>
+> 文档版本：2.0<br>
 > 对应应用版本：`ai-presenter-platform@0.1.0`<br>
 > 最后核对：2026-07-23<br>
-> 生产代码目录：`/opt/ai-presenter-platform`<br>
-> 生产数据目录：`/var/lib/ai-presenter/data`
+> 代码仓库：`github.com/LeeZePeng/ai-presenter-platform`（私有）<br>
+> 当前生产目录：`/Users/yshtola/ai-presenter-platform`<br>
+> 生产部署 checkout：`/Users/yshtola/ai-presenter-deploy`
 
-本文是当前 AI 口播工厂的开发、部署和运维交接文档。内容以仓库现有实现为准，不包含任何真实访问口令、API Key 或私钥。`server/config.ts`、`server/index.ts` 和部署脚本仍是配置与接口行为的最终事实来源。
+本文是当前 AI 口播工厂的开发、协作、部署和运维交接文档。内容以仓库现有实现为准，不包含任何真实访问口令、API Key 或私钥。`server/config.ts`、`server/index.ts`、`server/deployment.ts` 和部署脚本仍是配置与接口行为的最终事实来源。
+
+阅读路线：第一次参与开发先看第 0、2、6、12 节；开发接口或任务链路看第 5–11 节；负责上线和排障看第 13–19 节。
+
+## 0. 新成员 10 分钟上手
+
+### 0.1 环境要求
+
+- Git、Node.js 22 或更高；CI 与当前生产使用 Node.js 24；
+- pnpm 11.9；
+- FFmpeg/ffprobe；
+- 调试 YouTube 导入时还需要 yt-dlp；
+- 只有调试真实生成链路时才需要 Codex、whisper.cpp 和外部服务凭据。
+
+### 0.2 启动开发环境
+
+```bash
+git clone git@github.com:LeeZePeng/ai-presenter-platform.git
+cd ai-presenter-platform
+cp .env.example .env
+pnpm install --frozen-lockfile
+pnpm run dev
+```
+
+默认 `.env.example` 开启 `MOCK_GPU=true` 和 `MOCK_CODEX=true`，不会产生 GPU 或模型费用。启动后访问：
+
+- 用户端：`http://localhost:5173`
+- 管理端：`http://localhost:5173/admin`
+- API 健康检查：`http://localhost:4317/api/health`
+
+### 0.3 提交前最低检查
+
+```bash
+pnpm run typecheck
+pnpm test
+pnpm run build
+```
+
+完整开发流程见第 12 节，Git 与 PR 规则另见仓库根目录的 `CONTRIBUTING.md`。
 
 ## 1. 项目定位
 
@@ -27,9 +66,9 @@
 
 ```mermaid
 flowchart LR
-    U["用户浏览器"] --> N["Nginx / HTTPS"]
-    A["管理员浏览器"] --> N
-    N --> E["Express API + React 静态站点"]
+    U["用户浏览器"] --> CF["Cloudflare DNS / HTTPS / Tunnel"]
+    A["管理员浏览器"] --> CF
+    CF --> E["Mac: Express API + React 静态站点"]
     E --> DB["SQLite WAL"]
     E --> FS["任务与素材文件系统"]
     E --> YT["YouTube Data API / yt-dlp"]
@@ -62,10 +101,11 @@ flowchart LR
 | 美国节点探测 | `server/codex-proxy.ts` | 每次 Codex 启动前遍历美国节点并探活 |
 | 原片 ASR | `server/asr.ts` | FFmpeg 抽音频、whisper.cpp 带时间戳转写 |
 | YouTube | `server/youtube.ts` | 搜索、服务端筛选、排序、导入和落盘 |
+| 发布管理 | `server/deployment.ts` | 固定分支发布、状态持久化和部署日志 |
 | 重试 | `server/retry.ts` | 普通重试、完整重生成、内部视觉返修构建 |
 | 用户事件过滤 | `server/public-events.ts` | 隐藏工具命令和内部细节，保留产品进度 |
 | 用户前端 | `web/src/App.tsx` | 创建任务、素材选择、搜索导入、进度、下载 |
-| 管理前端 | `web/src/AdminApp.tsx` | 队列、实例、指标、任务日志和控制 |
+| 管理前端 | `web/src/AdminApp.tsx` | 队列、实例、指标、任务日志、GPU 和一键部署 |
 | 生成规范 | `deploy/ai-presenter-video-replica/` | 视频生成 skill、质量规范和辅助脚本 |
 
 ## 3. 目录结构
@@ -74,6 +114,7 @@ flowchart LR
 
 ```text
 ai-presenter-platform/
+├── .github/workflows/ci.yml    # PR/main 的 GitHub Actions 质量门禁
 ├── server/                     # Express、队列、GPU、Codex、校验
 ├── web/                        # React/Vite 前端
 │   ├── src/
@@ -81,6 +122,7 @@ ai-presenter-platform/
 ├── tests/                      # Vitest 单元与契约测试
 ├── scripts/                    # 运维/实例查询脚本
 ├── deploy/
+│   ├── deploy-macos.mjs        # Mac 原子发布、健康检查和自动回滚
 │   ├── ai-presenter.service
 │   ├── nginx.conf
 │   ├── bootstrap-linux.sh
@@ -89,39 +131,46 @@ ai-presenter-platform/
 │   ├── install-ytdlp.sh
 │   ├── codex-modelverse.toml
 │   └── ai-presenter-video-replica/
-├── docs/DEVELOPMENT.md
+├── docs/
+│   ├── DEVELOPMENT.md          # 本文档
+│   └── DEPLOYMENT.md           # Git 协作与后台发布专题
+├── CONTRIBUTING.md             # 分支、PR、审查约定
 ├── .env.example
 ├── package.json
 └── README.md
 ```
 
-### 3.2 生产服务器
+### 3.2 当前生产 Mac
 
 ```text
-/opt/ai-presenter-platform/                     # 应用代码
-/etc/ai-presenter-platform.env                  # systemd 环境，600 权限
-/etc/systemd/system/ai-presenter.service         # systemd 单元
-/etc/nginx/conf.d/ai-presenter.conf              # HTTPS 反向代理
-/var/lib/ai-presenter/
-├── .codex/config.toml                           # Codex provider 配置
-├── .codex/skills/ai-presenter-video-replica/    # 生产 skill
-├── runtime/
-│   ├── whisper/                                 # whisper-cli 与模型
-│   ├── remotion-4.0.490/                        # 共享 node_modules
-│   └── fonts/                                   # Noto Sans CJK SC
+/Users/yshtola/ai-presenter-deploy/              # 只负责拉取 main 的 Git checkout
+/Users/yshtola/ai-presenter-platform/            # 当前运行版本
+├── .env                                         # 生产环境，禁止提交 Git
+├── .cloudflared/                                # Tunnel 配置/凭据，禁止提交 Git
+├── bin/                                         # 本机 yt-dlp/ffmpeg 包装器等
+├── vendor/                                      # 机器相关第三方运行时
+├── deploy/remotion-runtime/node_modules/        # 独立 Remotion runtime
 └── data/
     ├── platform.sqlite                          # 主数据库
     ├── jobs/<job-id>/                           # 每个任务的输入、过程与输出
-    ├── presenter-library/<asset-id>/             # 保存的形象/声音
+    ├── presenter-library/<asset-id>/            # 保存的形象/声音
     ├── youtube-imports/<import-id>/              # YouTube 临时导入
+    ├── deployment-state.json                    # 最近发布状态
+    ├── deployment.log                           # 发布日志
     └── incoming/                                # Multer 临时上传
+/Users/yshtola/ai-presenter-platform.rollback/   # 最近一次发布的回滚快照
+~/Library/LaunchAgents/com.ai-presenter.platform.plist
 ```
 
-生产应用必须由 `presenter:presenter` 拥有和运行。不要用 root 在 `data/jobs/<job-id>` 中手工创建文件；否则 worker 可能因 `EACCES` 无法续写。执行过 root 级复制后要重新确认归属。
+应用和 Tunnel 均由登录用户的 `launchd` 服务管理。部署 checkout 与运行目录必须分离；后台发布只读取前者，并保留运行目录中的 `.env`、`.cloudflared`、`data`、`bin`、`vendor`、日志和 Remotion 依赖。
+
+### 3.3 Linux 兼容部署
+
+仓库仍保留 `systemd`、Nginx、whisper、Remotion 和 yt-dlp 的 Linux 初始化脚本。Linux 推荐使用 `/opt/ai-presenter-platform` 作为代码目录、`/var/lib/ai-presenter` 作为持久目录、`/etc/ai-presenter-platform.env` 保存环境变量，并由非 root 的 `presenter` 用户运行。当前线上不是这套拓扑，修改 Linux 模板时不要假设已经同步到生产 Mac。
 
 ## 4. 技术栈与运行要求
 
-- Node.js 22 或更高；项目使用 ESM 和内置 `node:sqlite`。
+- Node.js 22 或更高；CI 与当前生产使用 Node.js 24，项目使用 ESM 和内置 `node:sqlite`。
 - TypeScript 5.9、Express 5、React 19、Vite 7、Vitest 3。
 - FFmpeg/ffprobe。
 - Codex CLI 0.144.4 或更高。
@@ -131,7 +180,7 @@ ai-presenter-platform/
 - `yt-dlp`，用于 YouTube 回退搜索和下载。
 - CompShare 4090 48GB 实例，提供 InfiniteTalk Gradio/API 服务。
 
-前端构建输出在 `web/dist`，Express 在生产模式下直接提供静态文件和 SPA fallback。Nginx 只做 TLS、上传尺寸和长连接反向代理。
+前端构建输出在 `web/dist`，Express 在生产模式下直接提供静态文件和 SPA fallback。当前由 Cloudflare Tunnel 把公网 HTTPS 请求转发到 Mac 的 `127.0.0.1:4317`，应用端口不直接暴露公网。
 
 ## 5. 核心领域模型
 
@@ -277,7 +326,7 @@ data/jobs/<job-id>/
 │   ├── avatarImage.*
 │   ├── sourceVideo.*
 │   └── voiceReference.*
-├── node_modules -> /var/lib/ai-presenter/runtime/remotion-4.0.490/node_modules
+├── node_modules -> <REMOTION_RUNTIME_DIR>/node_modules
 ├── remotion/
 │   ├── src/
 │   └── public/
@@ -447,6 +496,8 @@ data: {"id":"...","status":"running",...}
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/admin/dashboard` | 实例、时间片、24 小时指标和近期事件 |
+| GET | `/api/admin/deployment` | 发布开关、阶段、提交和脱敏日志尾部 |
+| POST | `/api/admin/deployment` | 发布固定的远程分支，body 必须为 `{"confirmation":"DEPLOY"}` |
 | GET | `/api/admin/jobs?limit=200` | 管理任务列表 |
 | GET | `/api/admin/jobs/:id` | 任务与管理事件 |
 | GET | `/api/admin/jobs/:id/events` | 管理 SSE |
@@ -458,6 +509,8 @@ data: {"id":"...","status":"running",...}
 | GET | `/api/admin/jobs/:id/cover` | 封面 |
 | POST | `/api/admin/power/start` | 手动启动 GPU |
 | POST | `/api/admin/power/stop` | 队列为空时关闭 GPU |
+
+部署接口每小时最多调用 5 次；有排队或运行任务、已有发布进程、部署未启用、checkout 无效或脚本不存在时会拒绝请求。客户端不能传仓库、分支或命令，这些参数只能由服务器的 `DEPLOY_*` 环境变量决定。
 
 `createVisualRepairJob()` 当前是内部能力，没有公开 HTTP 路由。不要从客户端假设存在“只修视觉”API；对外只有普通重试和完整重生成。
 
@@ -504,13 +557,13 @@ finished_at, output_path, error, cancel_requested, metadata_json
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `HOST` | `0.0.0.0` | 生产建议 `127.0.0.1`，仅由 Nginx 暴露 |
+| `HOST` | `0.0.0.0` | 生产设为 `127.0.0.1`，仅由 Cloudflare Tunnel 暴露 |
 | `PORT` | `4317` | API 与静态站点端口 |
-| `DATA_DIR` | `./data` | 生产为 `/var/lib/ai-presenter/data` |
+| `DATA_DIR` | `./data` | 当前 Mac 使用运行目录下的 `data`；Linux 可用 `/var/lib/ai-presenter/data` |
 | `APP_ACCESS_TOKEN` | 空 | 生产必填 |
 | `ADMIN_ACCESS_TOKEN` | 空 | 生产必填，且必须不同于用户口令 |
 | `SESSION_COOKIE_SECURE` | `false` | HTTPS 生产必须为 `true` |
-| `MAX_UPLOAD_MB` | `500` | 单文件上限；Nginx 也需同步调整 |
+| `MAX_UPLOAD_MB` | `500` | 单文件上限；使用其他反向代理时也需同步调整 |
 | `JOBS_ENABLED` | `true` | 关闭后保留查看能力但拒绝创建/重试 |
 | `MOCK_GPU` | `true` | 本地默认不产生 GPU 费用 |
 | `MOCK_CODEX` | `true` | 本地默认不调用模型 |
@@ -540,17 +593,17 @@ CompShare 返回 `Initializing` 时会映射为内部 `Starting`，不应误报 
 
 | 变量 | 生产示例 |
 | --- | --- |
-| `ASR_BIN` | `/var/lib/ai-presenter/runtime/whisper/whisper-cli` |
-| `ASR_MODEL` | `/var/lib/ai-presenter/runtime/whisper/ggml-small.bin` |
+| `ASR_BIN` | whisper-cli 的机器实际绝对路径 |
+| `ASR_MODEL` | ggml 模型的机器实际绝对路径 |
 | `ASR_LANGUAGE` | `auto` |
 | `ASR_THREADS` | `8` |
 | `ASR_TIMEOUT_MINUTES` | `120` |
-| `REMOTION_RUNTIME_DIR` | `/var/lib/ai-presenter/runtime/remotion-4.0.490` |
-| `REMOTION_SKILL_PATH` | `/var/lib/ai-presenter/.codex/skills/remotion-best-practices` |
+| `REMOTION_RUNTIME_DIR` | 独立 Remotion runtime 绝对路径 |
+| `REMOTION_SKILL_PATH` | remotion-best-practices skill 绝对路径 |
 | `REMOTION_BROWSER_EXECUTABLE` | 服务器实际 Chromium 路径 |
-| `CJK_FONT_REGULAR_PATH` | `/var/lib/ai-presenter/runtime/fonts/NotoSansCJKSC-Regular.otf` |
-| `CJK_FONT_BOLD_PATH` | `/var/lib/ai-presenter/runtime/fonts/NotoSansCJKSC-Bold.otf` |
-| `CJK_FONT_BLACK_PATH` | `/var/lib/ai-presenter/runtime/fonts/NotoSansCJKSC-Black.otf` |
+| `CJK_FONT_REGULAR_PATH` | 本机中文常规字体绝对路径 |
+| `CJK_FONT_BOLD_PATH` | 本机中文粗体绝对路径 |
+| `CJK_FONT_BLACK_PATH` | 本机中文黑体绝对路径 |
 
 真实 GPU 模式启动时会检查三套字体文件是否存在。任务开始后把字体硬链接或复制进当前 Remotion 项目，避免 Chromium 使用错误的中文 fallback。
 
@@ -558,21 +611,21 @@ CompShare 返回 `Initializing` 时会映射为内部 `Starting`，不应误报 
 
 | 变量 | 当前生产基线 |
 | --- | --- |
-| `CODEX_BIN` | `/usr/bin/codex` |
+| `CODEX_BIN` | Codex CLI 的机器实际路径或 `codex` |
 | `CODEX_MODEL` | `gpt-5.6-sol` |
 | `CODEX_REASONING_EFFORT` | `xhigh` |
 | `CODEX_MODEL_PROVIDER` | `modelverse` 或空 |
 | `CODEX_PROFILE` | 可选 profile |
 | `CODEX_SANDBOX_MODE` | 云端可用 `danger-full-access` |
-| `CODEX_EPHEMERAL` | `true` |
+| `CODEX_EPHEMERAL` | `false` |
 | `CODEX_TIMEOUT_MINUTES` | `180` |
 | `CODEX_GOAL_MAX_MINUTES` | `360` |
-| `AI_PRESENTER_SKILL_PATH` | `/var/lib/ai-presenter/.codex/skills/ai-presenter-video-replica` |
+| `AI_PRESENTER_SKILL_PATH` | 生产 ai-presenter-video-replica skill 绝对路径 |
 | `MODELVERSE_API_KEY` | `<secret>` |
 
 `CODEX_REASONING_EFFORT` 只接受 `low`、`medium`、`high`、`xhigh`、`max`、`ultra`。当前按质量优先使用 `xhigh`，skill 不设人为 token 预算。
 
-使用 ModelVerse provider 时，`/var/lib/ai-presenter/.codex/config.toml` 只保存 provider 配置，不保存 API Key；密钥只通过 systemd 环境传入。
+使用 ModelVerse provider 时，Codex 配置只保存 provider 定义，不保存 API Key；密钥只通过应用环境传入。
 
 ### 11.5 Codex 美国节点代理
 
@@ -601,21 +654,38 @@ CompShare 返回 `Initializing` 时会映射为内部 `Starting`，不应误报 
 | --- | --- |
 | `YOUTUBE_API_KEY` | 空；空时使用 yt-dlp 搜索 |
 | `YTDLP_BIN` | `/usr/local/bin/yt-dlp` |
-| `YOUTUBE_PROXY_URL` | 空；未设时可继承 `CODEX_PROXY_URL` |
-| `YOUTUBE_SEARCH_CANDIDATE_LIMIT` | `50`，范围 20–50 |
-| `YOUTUBE_SEARCH_EXPANDED_LIMIT` | `200`，范围 50–200 |
-| `YOUTUBE_SEARCH_TIMEOUT_SECONDS` | `45` |
+| `FFMPEG_BIN` | 空；yt-dlp 使用 PATH 中的 FFmpeg，也可指定包装器/目录 |
+| `YOUTUBE_PROXY_URL` | 空；只在显式设置时使用，绝不继承 `CODEX_PROXY_URL` |
+| `YOUTUBE_SEARCH_CANDIDATE_LIMIT` | 代码默认 `50`，生产建议 `20`，范围 20–50 |
+| `YOUTUBE_SEARCH_EXPANDED_LIMIT` | 代码默认 `200`，生产建议 `50`，范围 50–200 |
+| `YOUTUBE_SEARCH_TIMEOUT_SECONDS` | 代码默认 `45`，生产建议 `120` |
 | `YOUTUBE_IMPORT_TIMEOUT_MINUTES` | `20` |
 | `YOUTUBE_MAX_DURATION_MINUTES` | `30` |
 
-直接导入只接受公开的 `youtube.com`、`m.youtube.com`、`music.youtube.com` 和 `youtu.be` 单条视频 URL。下载最高 1080p 并合并为 MP4。用户必须确认拥有下载和改编权。
+直接导入只接受公开的 `youtube.com`、`m.youtube.com`、`music.youtube.com` 和 `youtu.be` 单条视频 URL。下载最高 1080p 并合并为 MP4。用户必须确认拥有下载和改编权。当前 Mac 可把 `YTDLP_BIN` 指向运行目录中的包装器，由包装器调用已安装的 yt-dlp，并通过 `FFMPEG_BIN` 找到本机 FFmpeg。
+
+### 11.7 管理台部署
+
+| 变量 | 说明 |
+| --- | --- |
+| `DEPLOY_ENABLED` | 默认 `false`；完成手工演练后才可开启 |
+| `DEPLOY_REPO_DIR` | 只负责 `git fetch` 的独立 checkout |
+| `DEPLOY_REMOTE` / `DEPLOY_BRANCH` | 固定发布来源，当前为 `origin/main` |
+| `DEPLOY_TARGET_DIR` | 当前运行目录，不能与 checkout 相同 |
+| `DEPLOY_SCRIPT` | 固定部署脚本，当前为 `deploy/deploy-macos.mjs` |
+| `DEPLOY_PNPM_BIN` | pnpm 的可执行文件绝对路径或命令名 |
+| `DEPLOY_LAUNCHD_LABEL` | 重启的固定 launchd label |
+| `DEPLOY_HEALTH_URL` | 重启后的本机健康检查地址 |
+| `DEPLOY_HEALTH_TIMEOUT_SECONDS` | 健康检查等待上限，默认 90 秒 |
+
+部署状态和日志分别写入 `DATA_DIR/deployment-state.json` 与 `DATA_DIR/deployment.log`。部署子进程只继承最小运行环境，不继承应用密钥；生产凭据继续保留在目标目录的 `.env` 中。
 
 ## 12. 本地开发
 
 ```bash
 cd /path/to/ai-presenter-platform
 cp .env.example .env
-pnpm install
+pnpm install --frozen-lockfile
 pnpm run dev
 ```
 
@@ -654,9 +724,97 @@ pnpm start
 
 修改视频实现时还要同步 `deploy/ai-presenter-video-replica`，生产运行的是服务账户 skill 目录，不是仓库内文件的隐式引用。
 
+### 12.1 分支与 PR
+
+```bash
+git switch main
+git pull --ff-only
+git switch -c feature/<topic>   # 也可用 fix/<topic>、chore/<topic>
+```
+
+每个 PR 只解决一个明确问题，并写清用户影响、验证结果、配置/迁移变化和回滚办法。接口、队列状态、鉴权和部署流程变更必须带测试。合并前要求：
+
+1. `quality` GitHub Actions 全绿；
+2. 至少一名非作者完成审查；
+3. 分支基于最新 `main`；
+4. 不包含 `.env`、数据库、上传素材、成片、Cookie、AK 或私钥。
+
+当前仓库是个人 Free 账户下的私有仓库，GitHub 不会强制执行私有仓库 branch protection。升级到支持该能力的计划前，以上规则靠团队约定执行；不要误以为界面中保存的规则一定生效。
+
+### 12.2 开发与生产边界
+
+- 不直接编辑 `/Users/yshtola/ai-presenter-platform` 中的线上源码；
+- 开发改动先进入分支和 PR，再合并到 `main`；
+- 生产只从服务器预配置的 `origin/main` 发布；
+- 机器专属目录和密钥不进 Git，发布脚本也不会覆盖它们；
+- 修改 `.env` 后需要重启应用，修改 Cloudflare Tunnel 配置后需要重启 Tunnel。
+
 ## 13. 生产部署
 
-### 13.1 首次初始化
+### 13.1 当前拓扑
+
+```mermaid
+flowchart LR
+    GH["GitHub private main"] --> CO["独立部署 checkout"]
+    CO --> ST["临时 staging + pnpm 检查"]
+    ST --> BK["当前版本硬链接快照"]
+    ST --> RT["生产运行目录"]
+    RT --> LD["launchd 应用服务"]
+    LD --> HC["127.0.0.1:4317/api/health"]
+    CF["Cloudflare Tunnel"] --> LD
+    HC -->|失败| BK
+```
+
+公网域名为 `https://aipresenterhub.com`，Cloudflare Tunnel 终止 HTTPS 并访问本机服务。DNS、Tunnel 和应用是三个独立层次：API 健康但网页打不开时，还要检查 Tunnel 和 DNS。
+
+### 13.2 首次准备 Mac 发布
+
+1. 在生产 Mac 创建只用于拉取代码的 checkout，使用仓库级 Deploy Key 或其他受限凭据；
+2. 准备 Node 22+、pnpm 11、Git、rsync 和应用 `launchd` 服务；
+3. 确认 checkout 与生产运行目录不同；
+4. 保持 `DEPLOY_ENABLED=false`，手工演练一次部署脚本、重启与回滚；
+5. 填写 `DEPLOY_*` 后开启部署并重启应用；
+6. 从 `/admin` 验证“部署发布”页面能读取状态。
+
+当前生产基线：
+
+```dotenv
+DEPLOY_ENABLED=true
+DEPLOY_REPO_DIR=/Users/yshtola/ai-presenter-deploy
+DEPLOY_REMOTE=origin
+DEPLOY_BRANCH=main
+DEPLOY_TARGET_DIR=/Users/yshtola/ai-presenter-platform
+DEPLOY_SCRIPT=/Users/yshtola/ai-presenter-platform/deploy/deploy-macos.mjs
+DEPLOY_LAUNCHD_LABEL=com.ai-presenter.platform
+DEPLOY_HEALTH_URL=http://127.0.0.1:4317/api/health
+```
+
+`DEPLOY_PNPM_BIN` 必须填写生产机的真实可执行文件路径。文档不记录口令、密钥和与账号绑定的凭据。
+
+### 13.3 一键部署流程
+
+管理员在 `/admin` → “部署发布”中确认后，服务端异步执行：
+
+1. 确认队列为空且没有其他发布；
+2. `git fetch --prune <remote> <branch>` 并解析远程提交；
+3. 用 `git archive` 导出到临时目录，不修改 checkout；
+4. 执行 `pnpm install --frozen-lockfile`、类型检查、测试和构建；
+5. 把当前运行目录快照到 `<DEPLOY_TARGET_DIR>.rollback`；
+6. 用 rsync 同步新版本，同时保留 `.env`、`.cloudflared`、`data`、`logs`、`out`、`bin`、`vendor`、`backups` 和独立 Remotion `node_modules`；
+7. 用固定 launchd label 重启应用；
+8. 等待本机健康检查，失败则自动恢复快照并再次重启。
+
+状态为 `succeeded` 才代表完成。`queued`/`running` 表示仍在执行，`rolled_back` 表示新版本失败但旧版本已恢复，`failed` 表示发布或回滚未正常完成。
+
+### 13.4 手工发布与回滚
+
+日常发布优先使用管理台。需要排障时，可在生产 Mac 以与 launchd 相同的用户手工执行固定脚本，但必须提供完整的 `DEPLOY_*` 环境，且先确认没有运行任务。
+
+健康检查失败会自动回滚。如果发布成功后才发现业务问题，应在 Git 中 revert 对应 PR，合并后重新发布，使仓库历史与线上版本一致。紧急情况下可从 `<DEPLOY_TARGET_DIR>.rollback` 恢复，但恢复后仍应补做 Git revert。
+
+### 13.5 Linux 备选部署
+
+仓库仍保留 Linux 初始化脚本：
 
 ```bash
 sudo bash deploy/bootstrap-linux.sh
@@ -665,87 +823,9 @@ sudo bash deploy/install-whisper-runtime.sh
 sudo bash deploy/install-remotion-runtime.sh
 ```
 
-然后部署代码、环境、service、Nginx 和 skill。生产密钥只写入 `/etc/ai-presenter-platform.env`，权限为 `600`，所有者为 `presenter:presenter`。
+Linux 生产密钥只写入 `/etc/ai-presenter-platform.env`，权限为 `600`，所有者为 `presenter:presenter`。部署前执行与 CI 相同的 pnpm 门禁；服务关键约束为非 root 的 `presenter` 用户、固定 WorkingDirectory、`Restart=always`，并只允许写持久目录。
 
-### 13.2 发布新版本
-
-先在本地或 CI 验证：
-
-```bash
-pnpm install --frozen-lockfile
-pnpm run typecheck
-pnpm test
-pnpm run build
-```
-
-再同步到服务器。以下是模板，执行前确认源目录和目标主机：
-
-```bash
-rsync -a --delete \
-  --exclude node_modules \
-  --exclude data \
-  --exclude .env \
-  ./ root@<cloud-host>:/opt/ai-presenter-platform/
-
-ssh root@<cloud-host> '
-  cd /opt/ai-presenter-platform &&
-  npm ci --omit=dev &&
-  chown -R presenter:presenter /opt/ai-presenter-platform &&
-  systemctl restart ai-presenter &&
-  systemctl is-active ai-presenter
-'
-```
-
-同步 skill：
-
-```bash
-rsync -a --delete deploy/ai-presenter-video-replica/ \
-  root@<cloud-host>:/var/lib/ai-presenter/.codex/skills/ai-presenter-video-replica/
-
-ssh root@<cloud-host> \
-  'chown -R presenter:presenter /var/lib/ai-presenter/.codex/skills/ai-presenter-video-replica'
-```
-
-只更新 Markdown 文档不需要重启服务。更新 TypeScript、前端构建、环境变量或生产 skill 后，应按变更范围决定重启；skill 在每个新 Codex 任务启动时读取，但为了保持版本一致，完成发布后仍建议在安全窗口重启应用。
-
-### 13.3 systemd
-
-服务关键约束：
-
-- `User=presenter`、`Group=presenter`
-- `WorkingDirectory=/opt/ai-presenter-platform`
-- `EnvironmentFile=/etc/ai-presenter-platform.env`
-- `Restart=always`、`RestartSec=5`
-- `ProtectSystem=full`、`ProtectHome=read-only`
-- 只允许写 `/var/lib/ai-presenter`
-
-修改 unit 后：
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl restart ai-presenter
-sudo systemctl status ai-presenter --no-pager
-```
-
-### 13.4 Nginx 与 HTTPS
-
-当前配置：
-
-- HTTP 自动跳转 HTTPS；
-- ACME challenge 由 `/var/www/acme` 提供；
-- `client_max_body_size 500m`；
-- 读写超时 7200 秒；
-- 关闭 request/response buffering，支持上传和 SSE；
-- 代理到 `127.0.0.1:4317`。
-
-更换域名或证书后先运行：
-
-```bash
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
-不要在未验证 `nginx -t` 的情况下替换线上配置。
+Nginx 模板包含大文件上传、长读写超时和 SSE 所需的无缓冲代理。修改配置后必须先运行 `nginx -t`，再 reload。当前 Mac 主线发布不使用 systemd 或 Nginx。
 
 ## 14. 运维与可观测性
 
@@ -753,26 +833,29 @@ sudo systemctl reload nginx
 
 ```bash
 curl -fsS http://127.0.0.1:4317/api/health
-systemctl is-active ai-presenter
-systemctl is-active nginx
+curl -fsS https://aipresenterhub.com/api/health
+launchctl print gui/$(id -u)/com.ai-presenter.platform
+launchctl print gui/$(id -u)/com.ai-presenter.cloudflared
 ```
 
-API 健康只说明 Node 进程可响应，不代表 GPU、Codex、TTS 或 InfiniteTalk 全链路可用。完整检查还应查看 `/api/admin/dashboard` 的实例状态、`lastPowerError` 和最近任务。
+第一条验证应用，第二条同时验证 DNS、TLS 和 Tunnel。API 健康仍不代表 GPU、Codex、TTS 或 InfiniteTalk 全链路可用；完整检查还应查看 `/api/admin/dashboard` 的实例状态、`lastPowerError` 和最近任务。
 
 ### 14.2 日志
 
 ```bash
-journalctl -u ai-presenter -n 300 --no-pager
-journalctl -u ai-presenter -f
-journalctl -u nginx -n 100 --no-pager
+tail -n 300 /Users/yshtola/ai-presenter-platform/logs/ai-presenter.log
+tail -n 300 /Users/yshtola/ai-presenter-platform/logs/ai-presenter.error.log
+tail -n 200 /Users/yshtola/ai-presenter-platform/logs/cloudflared.log
+tail -n 200 /Users/yshtola/ai-presenter-platform/logs/cloudflared.error.log
+tail -n 200 /Users/yshtola/ai-presenter-platform/data/deployment.log
 ```
 
-任务细节以数据库 `job_events`、管理端时间线和任务工作区为准。Codex 日志会脱敏常见 API Key，公开用户事件还会去除工具命令和内部路径；仍不要主动把完整管理日志发布到公共渠道。
+Linux 备选环境改用 `journalctl -u ai-presenter` 和 Nginx 日志。任务细节以数据库 `job_events`、管理端时间线和任务工作区为准。Codex 日志会脱敏常见 API Key，公开用户事件还会去除工具命令和内部路径；仍不要主动把完整管理日志发布到公共渠道。
 
 ### 14.3 查询任务
 
 ```bash
-sqlite3 /var/lib/ai-presenter/data/platform.sqlite \
+sqlite3 /Users/yshtola/ai-presenter-platform/data/platform.sqlite \
   "select id,title,status,stage,progress,created_at,error from jobs order by created_at desc limit 20;"
 ```
 
@@ -810,30 +893,32 @@ sqlite3 /var/lib/ai-presenter/data/platform.sqlite \
 
 | 内容 | 路径 | 敏感性 |
 | --- | --- | --- |
-| 数据库 | `/var/lib/ai-presenter/data/platform.sqlite*` | 含任务与内部路径 |
-| 任务输入/产物 | `/var/lib/ai-presenter/data/jobs` | 可能含人物和声音隐私 |
-| 素材库 | `/var/lib/ai-presenter/data/presenter-library` | 高敏感生物特征素材 |
-| YouTube 导入 | `/var/lib/ai-presenter/data/youtube-imports` | 可重建，但占空间 |
-| 环境密钥 | `/etc/ai-presenter-platform.env` | 最高敏感，独立加密备份 |
-| Codex 配置 | `/var/lib/ai-presenter/.codex/config.toml` | 不应包含 Key |
-| 生产 skill | `/var/lib/ai-presenter/.codex/skills/...` | 应与发布版本对应 |
+| 数据库 | `/Users/yshtola/ai-presenter-platform/data/platform.sqlite*` | 含任务与内部路径 |
+| 任务输入/产物 | `/Users/yshtola/ai-presenter-platform/data/jobs` | 可能含人物和声音隐私 |
+| 素材库 | `/Users/yshtola/ai-presenter-platform/data/presenter-library` | 高敏感生物特征素材 |
+| YouTube 导入 | `/Users/yshtola/ai-presenter-platform/data/youtube-imports` | 可重建，但占空间 |
+| 环境密钥 | `/Users/yshtola/ai-presenter-platform/.env` | 最高敏感，独立加密备份 |
+| Tunnel 凭据 | `/Users/yshtola/ai-presenter-platform/.cloudflared` | 最高敏感，可撤销 |
+| 机器运行时 | `bin`、`vendor`、Remotion runtime | 可重装，但发布脚本会保留 |
+| 最近版本快照 | `/Users/yshtola/ai-presenter-platform.rollback` | 只用于代码级紧急恢复 |
 
 在线备份 SQLite 推荐使用 `.backup`，不要只复制主文件而遗漏 WAL：
 
 ```bash
-sudo install -d -m 700 /var/backups/ai-presenter
-sudo sqlite3 /var/lib/ai-presenter/data/platform.sqlite \
-  ".backup '/var/backups/ai-presenter/platform.sqlite'"
+mkdir -p /Users/yshtola/ai-presenter-backups
+chmod 700 /Users/yshtola/ai-presenter-backups
+sqlite3 /Users/yshtola/ai-presenter-platform/data/platform.sqlite \
+  ".backup '/Users/yshtola/ai-presenter-backups/platform.sqlite'"
 ```
 
-任务和素材目录可用增量 rsync 到受控、加密存储。备份策略必须满足人物图片和声音样本的隐私要求。
+任务和素材目录可用增量 rsync 到受控、加密存储。Git 仓库和部署 rollback 不能替代数据备份；发布脚本的 rollback 快照只保留最近代码状态。备份策略必须满足人物图片和声音样本的隐私要求。
 
 恢复步骤：
 
-1. 停止 `ai-presenter`；
+1. 停止 `com.ai-presenter.platform`；
 2. 备份当前损坏现场；
 3. 恢复 SQLite、jobs 和 presenter-library；
-4. 确认所有者为 `presenter:presenter`；
+4. 确认运行用户拥有恢复后的文件；
 5. 启动服务；
 6. 检查 health、最新任务和素材文件；
 7. 被中断的运行任务会自动恢复到 pending。
@@ -859,7 +944,38 @@ sudo sqlite3 /var/lib/ai-presenter/data/platform.sqlite \
 - 探测 URL 必须返回 JSON，不以“代理 TCP 能连接”作为成功；
 - 使用 ModelVerse 直连 provider 时可不启用 Codex 代理。
 
-### 17.3 任务反复“续接同一 Goal”
+### 17.3 YouTube 搜索或导入失败
+
+`spawn /usr/local/bin/yt-dlp ENOENT` 表示应用配置的 yt-dlp 路径不存在或 launchd 看不到它，不是 YouTube API 错误。按顺序检查：
+
+```bash
+test -x /Users/yshtola/ai-presenter-platform/bin/yt-dlp
+/Users/yshtola/ai-presenter-platform/bin/yt-dlp --version
+```
+
+把 `YTDLP_BIN` 设为生产机真实的可执行文件或已验证的包装器绝对路径；若视频/音频需要合并，再确认 `FFMPEG_BIN` 或包装器能找到 FFmpeg。修改 `.env` 后重启应用。
+
+`HTTPSConnection(host='127.0.0.1', port=7890) ... Connection refused` 表示显式配置了一个未运行的本机代理。当前 YouTube 不继承 `CODEX_PROXY_URL`：不需要代理时把 `YOUTUBE_PROXY_URL` 留空，需要时只填写确实能从 launchd 进程访问的代理。不要为了修复 YouTube 修改 Codex 的美国节点代理。
+
+搜索慢时先区分官方 Data API 和 yt-dlp 回退。生产建议候选池 `20/50`、搜索超时 `120` 秒；扩大候选池会提高筛选覆盖，也会显著增加请求时间。导入失败还应检查链接是否为公开单条视频、时长是否超限、地区/年龄限制和下载权确认。
+
+### 17.4 公网打不开或 Cloudflare 502
+
+1. 先访问 `http://127.0.0.1:4317/api/health`；失败则检查应用 launchd 和应用日志；
+2. 本机正常但公网失败，检查 `com.ai-presenter.cloudflared` 状态和 cloudflared 错误日志；固定域名不依赖临时的 quick tunnel；
+3. 确认 Tunnel 路由仍指向 `http://127.0.0.1:4317`，域名 DNS 仍由 Cloudflare 托管；
+4. 不要把应用改回 `0.0.0.0` 暴露公网来绕过 Tunnel。
+
+### 17.5 一键部署失败
+
+- “仍有排队或运行中的任务”：等待队列清空，不能强制覆盖正在写产物的版本；
+- “部署 checkout 尚未初始化”：检查 `DEPLOY_REPO_DIR/.git` 及 Deploy Key 拉取权限；
+- 安装、测试或构建失败：查看 `data/deployment.log`，在开发分支修复后重新合并；
+- `rolled_back`：新版本健康检查失败但旧版已恢复，先查看应用错误日志和部署日志；
+- “发布进程中断”：确认生产机没有被休眠/关机，且 pnpm、Git、rsync 与 launchd 路径可用；
+- 队列为空、日志无敏感数据后，才可把脱敏日志附到 PR 或工单。
+
+### 17.6 任务反复“续接同一 Goal”
 
 这表示 `final.mp4` 与 `result.json` 存在，但平台验收仍报错。重点查看 `worker_validation_repair` 的 message，而不是只看 Codex 最后一条文字。常见原因：
 
@@ -871,7 +987,7 @@ sudo sqlite3 /var/lib/ai-presenter/data/platform.sqlite \
 - InfiniteTalk 分段或回执不完整；
 - 视觉审查低于 90 或有 fatal issue。
 
-### 17.4 渲染慢或画面糊
+### 17.7 渲染慢或画面糊
 
 - InfiniteTalk 的 `frame_window_size` 影响生成吞吐和稳定性，不等同于最终输出分辨率；
 - 当前 48GB 基线优先 `81 / blocks_to_swap=0`，不要盲目加到超过模型稳定范围；
@@ -879,7 +995,7 @@ sudo sqlite3 /var/lib/ai-presenter/data/platform.sqlite \
 - 放大低分辨率人物不会创造真实细节，必要时使用已有超清/增强能力，但要避免塑料感和人脸漂移；
 - 区分数字人口型生成慢和 Remotion 渲染慢，可从事件阶段、分段回执和 render 日志定位。
 
-### 17.5 字幕残缺或重叠
+### 17.8 字幕残缺或重叠
 
 - 检查 `caption_timeline.json` 是否覆盖 final_script 的开头、结尾和 95% 以上正文；
 - 确认 Remotion 导入的正是该时间轴，而非 cue 摘要；
@@ -887,23 +1003,20 @@ sudo sqlite3 /var/lib/ai-presenter/data/platform.sqlite \
 - 原片引用区域必须先清理原字幕；
 - 查看 collision review 和 source evidence review 帧。
 
-### 17.6 `EACCES` 或任务无法续写
+### 17.9 `EACCES` 或任务无法续写
 
-```bash
-sudo chown -R presenter:presenter /opt/ai-presenter-platform
-sudo chown -R presenter:presenter /var/lib/ai-presenter
-```
-
-先确认目标路径正确再执行。不要通过放宽到 777 解决权限问题。
+确认生产目录和 `data/jobs/<job-id>` 由运行 launchd 的用户拥有并可写。Linux 备选部署则应由 `presenter:presenter` 拥有。先确认目标路径正确再调整所有者；不要通过放宽到 777 解决权限问题。
 
 ## 18. 安全与合规
 
-- 所有密钥只存在 `/etc/ai-presenter-platform.env` 或安全密钥系统，不提交 Git。
+- 所有密钥只存在生产 `.env`、Cloudflare token 文件或安全密钥系统，不提交 Git。
+- 生产 checkout 使用仓库级 Deploy Key，不复用个人 SSH 私钥；生产拉取本身只需要只读权限，若复用当前可写 key，应后续拆分并轮换为独立只读 key。
 - 用户口令和管理员口令必须不同，比较使用 SHA-256 后的 timing-safe comparison。
-- Nginx 和 Express 都限制上传大小；Multer 同时限制最多 3 个文件和 30 个字段。
+- Express/Multer 限制上传大小、最多 3 个文件和 30 个字段；更换反向代理时需同步上游限制。
 - 上传采用 MIME allowlist，下载产物和素材时校验绝对路径必须位于受控目录。
-- Helmet 设置 CSP、HSTS 由 Nginx 设置；生产 Cookie 使用 Secure。
-- POST 总限流为每 15 分钟 600 次；用户登录 20 次，管理员登录 10 次；创建任务每小时 30 次；YouTube 搜索 60 次、导入 10 次。
+- Helmet 设置 CSP，HTTPS 由 Cloudflare 提供；生产 Cookie 使用 Secure。
+- POST 总限流为每 15 分钟 600 次；用户登录 20 次，管理员登录 10 次；创建任务每小时 30 次；YouTube 搜索 60 次、导入 10 次；部署每小时 5 次。
+- 部署页面不接收 shell、仓库或分支参数，发布子进程不继承应用密钥，运行目录与 checkout 强制分离。
 - 管理事件在输出前再次脱敏，用户事件只展示可理解的产品进度。
 - 用户必须确认拥有上传、下载和改编权。
 - 人物图片与声音属于高敏感素材，应限制服务器和备份访问，明确保留周期并支持后续删除能力。
@@ -914,11 +1027,14 @@ sudo chown -R presenter:presenter /var/lib/ai-presenter
 发布前最低门禁：
 
 ```bash
-npm run typecheck
-npm test
-npm run build
-npm audit --audit-level=high
+pnpm install --frozen-lockfile
+pnpm run typecheck
+pnpm test
+pnpm run build
+pnpm audit --audit-level=high
 ```
+
+GitHub Actions 在每个 PR 和 `main` push 上使用 Node 24、pnpm 11.9 执行安装、类型检查、测试和构建。管理台发布会在独立 staging 中重复同一组核心门禁，CI 成功不能替代生产机的构建与健康检查。
 
 测试当前覆盖：
 
@@ -951,7 +1067,7 @@ npm audit --audit-level=high
 - 是否改变收费、显存、轮询或超时；
 - 是否兼容旧任务检查点和 result.json；
 - 本地测试、类型检查和构建结果；
-- 云端 health、systemd 状态和最近日志；
+- 本机与公网 health、launchd/Tunnel 状态和最近日志；Linux 环境则记录 systemd/Nginx；
 - 若有真实任务，任务 ID、当前阶段和是否允许重跑；
 - 回滚方式与备份位置。
 
@@ -965,6 +1081,8 @@ npm audit --audit-level=high
 - 任务/导入文件尚无自动保留期和空间水位清理。
 - 内部视觉返修尚未暴露为公开接口。
 - YouTube 结果受官方 API 配额、授权标记和 yt-dlp 可见元数据影响；回退搜索的授权信息可能不完整。
+- 当前一键部署只支持单台 Mac、固定远程和固定分支，不是多环境发布平台。
+- 个人 Free 账户下的私有仓库不能强制 branch protection，合并审查目前依赖团队流程。
 - 外部模型、代理节点、CompShare 容量和 Gradio 服务都可能成为长链路故障点，不能只靠单个 `/api/health` 判断。
 
 在引入并发 worker、远端对象存储或新数字人 provider 前，应先把任务领取、检查点幂等、资源租约、素材隐私和成本核算设计成可恢复的分布式协议。
