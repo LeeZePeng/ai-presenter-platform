@@ -1,5 +1,6 @@
 allowBuilds:
   '@ffprobe-installer/darwin-arm64': true
+  '@ffprobe-installer/linux-x64': true
   '@tsparticles/engine': true
   esbuild: true
   ffmpeg-static: true
