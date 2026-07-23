@@ -122,6 +122,7 @@ const exclusions = [
   'logs/',
   'out/',
   'bin/',
+  'runtime/',
   'vendor/',
   '.git/',
   'backups/',

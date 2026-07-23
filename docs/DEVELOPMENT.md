@@ -163,7 +163,7 @@ ai-presenter-platform/
 ~/Library/LaunchAgents/com.ai-presenter.platform.plist
 ```
 
-应用和 Tunnel 均由登录用户的 `launchd` 服务管理。部署 checkout 与运行目录必须分离；后台发布只读取前者，并保留运行目录中的 `.env`、`.cloudflared`、`data`、`bin`、`vendor`、日志和 Remotion 依赖。
+应用和 Tunnel 均由登录用户的 `launchd` 服务管理。部署 checkout 与运行目录必须分离；后台发布只读取前者，并保留运行目录中的 `.env`、`.cloudflared`、`data`、`bin`、`runtime`、`vendor`、日志和 Remotion 依赖。
 
 ### 3.3 Linux 兼容部署
 
