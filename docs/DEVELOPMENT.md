@@ -554,6 +554,8 @@ finished_at, output_path, error, cancel_requested, metadata_json
 
 应用启动时会把数据库中遗留的 `/var/lib/ai-presenter/data` 路径迁移为当前数据库所在的数据目录。只有检测到旧路径时才执行，并先在 `data/backups/path-migration-*.sqlite` 创建一致性备份。
 
+第一次在新数据目录启动时还会迁移 `data/jobs` 下 JSON、文本、脚本和 Remotion 源码中的旧绝对路径。被修改的原文件保存在 `data/backups/artifact-path-migration-*`，完成标记写入 `data/.artifact-path-migration-v1.json`，二进制媒体不会被改写。
+
 ## 11. 配置
 
 ### 11.1 Web、存储与安全

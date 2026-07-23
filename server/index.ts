@@ -20,6 +20,7 @@ import {createFullRegenerationJob, createRetryJob, RetryJobError} from './retry.
 import {publicEvents} from './public-events.js';
 import {YouTubeService} from './youtube.js';
 import {DeploymentManager} from './deployment.js';
+import {migrateLegacyArtifactPaths} from './path-migration.js';
 import type {JobAssets, PresenterAsset, PresenterAssetKind} from './types.js';
 
 assertProductionConfiguration();
@@ -36,6 +37,7 @@ mkdirSync(incomingDir, {recursive: true});
 mkdirSync(jobsDir, {recursive: true});
 mkdirSync(libraryDir, {recursive: true});
 mkdirSync(youtubeImportsDir, {recursive: true});
+migrateLegacyArtifactPaths(config.dataDir);
 
 const probeMediaDuration = (file: string): number => {
   const result = spawnSync(
