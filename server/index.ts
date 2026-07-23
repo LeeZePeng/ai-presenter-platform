@@ -100,11 +100,13 @@ const worker = new JobWorker(db, power, runner, transcriber, {
   remotionRuntimeDir: config.remotionRuntimeDir,
   remotionSkillPath: config.remotionSkillPath,
   remotionBrowserExecutable: config.remotionBrowserExecutable,
+  pythonBin: config.pythonBin,
   cjkFontPaths: config.cjkFontPaths,
   asrBin: config.asr.bin,
   asrModel: config.asr.model,
   asrLanguage: config.asr.language,
   asrThreads: config.asr.threads,
+  asrUseGpu: config.asr.useGpu,
 });
 
 power.start();

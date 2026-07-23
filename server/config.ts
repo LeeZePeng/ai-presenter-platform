@@ -39,6 +39,7 @@ export const config = {
   jobsEnabled: bool('JOBS_ENABLED', true),
   mockGpu: bool('MOCK_GPU', true),
   mockCodex: bool('MOCK_CODEX', true),
+  pythonBin: env.PYTHON_BIN?.trim() || 'python3',
 
   compshare: {
     publicKey: env.COMPSHARE_PUBLIC_KEY?.trim() ?? '',
@@ -79,6 +80,8 @@ export const config = {
   asr: {
     bin: path.resolve(env.ASR_BIN?.trim() || '/var/lib/ai-presenter/runtime/whisper/whisper-cli'),
     model: path.resolve(env.ASR_MODEL?.trim() || '/var/lib/ai-presenter/runtime/whisper/ggml-small.bin'),
+    ffmpegBin: env.FFMPEG_BIN?.trim() || 'ffmpeg',
+    useGpu: bool('ASR_USE_GPU', false),
     language: env.ASR_LANGUAGE?.trim() || 'auto',
     threads: Math.max(1, Math.floor(number('ASR_THREADS', Math.min(8, os.cpus().length)))),
     timeoutMs: number('ASR_TIMEOUT_MINUTES', 120) * 60 * 1000,
@@ -168,6 +171,7 @@ export const assertProductionConfiguration = (): void => {
       throw new Error(`Real GPU mode requires: ${missing.join(', ')}`);
     }
     const missingRuntime = Object.entries({
+      PYTHON_BIN: config.pythonBin,
       REMOTION_RUNTIME_DIR: config.remotionRuntimeDir,
       REMOTION_SKILL_PATH: config.remotionSkillPath,
       REMOTION_BROWSER_EXECUTABLE: config.remotionBrowserExecutable,
@@ -178,6 +182,26 @@ export const assertProductionConfiguration = (): void => {
       .filter(([, value]) => !value)
       .map(([name]) => name);
     if (missingRuntime.length) throw new Error(`Real GPU mode requires: ${missingRuntime.join(', ')}`);
+    const missingFiles = Object.entries({
+      PYTHON_BIN: config.pythonBin,
+      ASR_BIN: config.asr.bin,
+      ASR_MODEL: config.asr.model,
+      FFMPEG_BIN: config.asr.ffmpegBin,
+      REMOTION_BROWSER_EXECUTABLE: config.remotionBrowserExecutable,
+      REMOTION_CLI: path.join(config.remotionRuntimeDir, 'node_modules', '.bin', 'remotion'),
+      YTDLP_BIN: config.youtube.bin,
+      AI_PRESENTER_SKILL: path.join(config.codex.skillPath, 'SKILL.md'),
+      REMOTION_SKILL: path.join(config.remotionSkillPath, 'SKILL.md'),
+      INFINITE_TALK_SCRIPT: path.join(config.codex.skillPath, 'scripts', 'infinite_talk_api.py'),
+      LONG_FORM_TTS_SCRIPT: path.join(config.codex.skillPath, 'scripts', 'long_form_tts.py'),
+      NARRATION_TIMELINE_SCRIPT: path.join(config.codex.skillPath, 'scripts', 'transcribe_timeline.py'),
+      VISUAL_PREFLIGHT_SCRIPT: path.join(config.codex.skillPath, 'scripts', 'validate_visual_preflight.py'),
+    }).filter(([, filename]) => path.isAbsolute(filename) && !existsSync(filename));
+    if (missingFiles.length) {
+      throw new Error(
+        `Production runtime files are missing: ${missingFiles.map(([name, filename]) => `${name}=${filename}`).join(', ')}`,
+      );
+    }
     for (const [weight, filename] of Object.entries(config.cjkFontPaths)) {
       if (!existsSync(filename)) throw new Error(`Remotion CJK ${weight} font is missing: ${filename}`);
     }

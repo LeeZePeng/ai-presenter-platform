@@ -25,6 +25,7 @@ type WorkerOptions = {
   remotionRuntimeDir: string;
   remotionSkillPath: string;
   remotionBrowserExecutable: string;
+  pythonBin: string;
   cjkFontPaths: {
     regular: string;
     bold: string;
@@ -34,6 +35,7 @@ type WorkerOptions = {
   asrModel: string;
   asrLanguage: string;
   asrThreads: number;
+  asrUseGpu: boolean;
   pollMs?: number;
 };
 
@@ -212,11 +214,13 @@ export class JobWorker {
         remotionRuntimeDir: this.options.remotionRuntimeDir,
         remotionSkillPath: this.options.remotionSkillPath,
         remotionBrowserExecutable: this.options.remotionBrowserExecutable,
+        pythonBin: this.options.pythonBin,
         remotionFontDir,
         asrBin: this.options.asrBin,
         asrModel: this.options.asrModel,
         asrLanguage: this.options.asrLanguage,
         asrThreads: this.options.asrThreads,
+        asrUseGpu: this.options.asrUseGpu,
         sourceTranscriptPath,
       });
 

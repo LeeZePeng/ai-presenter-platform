@@ -13,15 +13,19 @@ export const buildCodexPrompt = (
     remotionRuntimeDir: string;
     remotionSkillPath: string;
     remotionBrowserExecutable: string;
+    pythonBin?: string;
     remotionFontDir: string;
     asrBin: string;
     asrModel: string;
     asrLanguage: string;
     asrThreads: number;
+    asrUseGpu?: boolean;
     sourceTranscriptPath?: string;
   },
 ): string => {
   const output = path.join(workspace, 'out', 'final.mp4');
+  const pythonBin = `"${(options.pythonBin ?? 'python3').replaceAll('"', '\\"')}"`;
+  const asrDeviceArgs = options.asrUseGpu ? '' : ' --no-gpu';
   const manifest = path.join(workspace, 'out', 'result.json');
   const infiniteTalkDir = path.join(workspace, 'out', 'infinite_talk');
   const presenterPrimaryStyle = job.style === '真人主画面·悬浮组件';
@@ -153,5 +157,7 @@ ${JSON.stringify(spec, null, 2)}
 </job_spec>
 
 完成实现、生成和验证后再结束。最终回复只报告产物路径、验证结果和必要告警。
-`.trim();
+`.trim()
+    .replaceAll('python3.11', pythonBin)
+    .replaceAll(`--threads ${options.asrThreads}`, `--threads ${options.asrThreads}${asrDeviceArgs}`);
 };

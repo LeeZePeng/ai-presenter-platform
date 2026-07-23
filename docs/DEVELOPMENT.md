@@ -149,6 +149,7 @@ ai-presenter-platform/
 ├── .cloudflared/                                # Tunnel 配置/凭据，禁止提交 Git
 ├── bin/                                         # 本机 yt-dlp/ffmpeg 包装器等
 ├── vendor/                                      # 机器相关第三方运行时
+├── runtime/whisper/                             # Mac 原生 whisper-cli 与模型
 ├── deploy/remotion-runtime/node_modules/        # 独立 Remotion runtime
 └── data/
     ├── platform.sqlite                          # 主数据库
@@ -174,7 +175,7 @@ ai-presenter-platform/
 - TypeScript 5.9、Express 5、React 19、Vite 7、Vitest 3。
 - FFmpeg/ffprobe。
 - Codex CLI 0.144.4 或更高。
-- Python 3.11，用于生成 skill 的辅助脚本。
+- Python 3.11 或更高版本，用于生成 skill 的辅助脚本；由 `PYTHON_BIN` 指向实际解释器，不依赖固定命令名。
 - whisper.cpp，用于 ECS CPU 转写和旁白时间轴。
 - Headless Chromium、Noto Sans CJK SC 字体、共享 Remotion runtime。
 - `yt-dlp`，用于 YouTube 回退搜索和下载。
@@ -551,6 +552,8 @@ finished_at, output_path, error, cancel_requested, metadata_json
 
 当前没有自动清理、软删除或对象存储迁移。清理 jobs、YouTube 导入或素材库时，必须同步考虑数据库记录与文件引用。
 
+应用启动时会把数据库中遗留的 `/var/lib/ai-presenter/data` 路径迁移为当前数据库所在的数据目录。只有检测到旧路径时才执行，并先在 `data/backups/path-migration-*.sqlite` 创建一致性备份。
+
 ## 11. 配置
 
 ### 11.1 Web、存储与安全
@@ -595,8 +598,10 @@ CompShare 返回 `Initializing` 时会映射为内部 `Starting`，不应误报 
 | --- | --- |
 | `ASR_BIN` | whisper-cli 的机器实际绝对路径 |
 | `ASR_MODEL` | ggml 模型的机器实际绝对路径 |
+| `PYTHON_BIN` | Python 3.11+ 解释器的机器实际路径 |
 | `ASR_LANGUAGE` | `auto` |
 | `ASR_THREADS` | `8` |
+| `ASR_USE_GPU` | `false`（Mac launchd 默认使用 CPU，避免 Metal 缓冲分配失败） |
 | `ASR_TIMEOUT_MINUTES` | `120` |
 | `REMOTION_RUNTIME_DIR` | 独立 Remotion runtime 绝对路径 |
 | `REMOTION_SKILL_PATH` | remotion-best-practices skill 绝对路径 |
@@ -605,7 +610,7 @@ CompShare 返回 `Initializing` 时会映射为内部 `Starting`，不应误报 
 | `CJK_FONT_BOLD_PATH` | 本机中文粗体绝对路径 |
 | `CJK_FONT_BLACK_PATH` | 本机中文黑体绝对路径 |
 
-真实 GPU 模式启动时会检查三套字体文件是否存在。任务开始后把字体硬链接或复制进当前 Remotion 项目，避免 Chromium 使用错误的中文 fallback。
+真实 GPU 模式启动时会检查 Python、ASR 程序、ASR 模型、Remotion CLI、浏览器、yt-dlp 和三套字体文件是否存在，缺任何一项都会在接任务前明确失败。任务开始后把字体硬链接或复制进当前 Remotion 项目，避免 Chromium 使用错误的中文 fallback。Mac 可运行 `PYTHON_BIN=<python> AI_PRESENTER_PROJECT_DIR=<生产目录> ./deploy/install-whisper-runtime.sh` 原生编译带 Metal 的 whisper.cpp 并下载校验模型；Remotion 浏览器使用 `remotion browser ensure` 安装到独立 runtime。
 
 ### 11.4 Codex
 

@@ -20,6 +20,8 @@ export type SourceTranscriptResult = {path: string; sha256: string};
 type SourceTranscriberOptions = {
   bin: string;
   model: string;
+  ffmpegBin: string;
+  useGpu: boolean;
   language: string;
   threads: number;
   timeoutMs: number;
@@ -176,7 +178,7 @@ export class SourceTranscriber {
 
     callbacks.onEvent?.('asr_extract', '正在提取原片音频，GPU 尚未启动');
     await runProcess(
-      'ffmpeg',
+      this.options.ffmpegBin,
       ['-y', '-v', 'error', '-i', sourceVideo, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', extractedAudioPath],
       Math.min(this.options.timeoutMs, 30 * 60 * 1000),
       callbacks,
@@ -200,6 +202,7 @@ export class SourceTranscriber {
         '-pp',
         '-of',
         rawPrefix,
+        ...(this.options.useGpu ? [] : ['-ng']),
       ],
       this.options.timeoutMs,
       callbacks,

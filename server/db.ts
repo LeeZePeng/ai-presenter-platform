@@ -52,12 +52,15 @@ const parseJson = <T>(value: string, fallback: T): T => {
 
 export class AppDatabase {
   private readonly db: DatabaseSync;
+  private readonly dataDir: string;
 
   constructor(filename: string) {
-    mkdirSync(path.dirname(filename), {recursive: true});
+    this.dataDir = path.resolve(path.dirname(filename));
+    mkdirSync(this.dataDir, {recursive: true});
     this.db = new DatabaseSync(filename);
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
     this.migrate();
+    this.migrateLegacyDataPaths();
     this.recoverInterruptedJobs();
   }
 
@@ -123,6 +126,43 @@ export class AppDatabase {
     const jobColumns = this.db.prepare('PRAGMA table_info(jobs)').all() as unknown as Array<{name: string}>;
     if (!jobColumns.some((column) => column.name === 'replica_mode')) {
       this.db.exec("ALTER TABLE jobs ADD COLUMN replica_mode TEXT NOT NULL DEFAULT 'condensed'");
+    }
+  }
+
+  private migrateLegacyDataPaths(): void {
+    const legacyDataDir = '/var/lib/ai-presenter/data';
+    if (this.dataDir === legacyDataDir) return;
+    const targets = [
+      ['jobs', 'assets_json'],
+      ['jobs', 'output_path'],
+      ['jobs', 'metadata_json'],
+      ['job_events', 'data_json'],
+      ['runtime_state', 'value'],
+      ['presenter_assets', 'file_path'],
+    ] as const;
+    const matchPattern = `%${legacyDataDir}%`;
+    const matches = targets.reduce((total, [table, column]) => {
+      const row = this.db
+        .prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE ${column} LIKE ?`)
+        .get(matchPattern) as {count: number};
+      return total + row.count;
+    }, 0);
+    if (matches === 0) return;
+    const backupDir = path.join(this.dataDir, 'backups');
+    mkdirSync(backupDir, {recursive: true});
+    const backupPath = path.join(backupDir, `path-migration-${now().replaceAll(/[:.]/g, '-')}.sqlite`);
+    this.db.prepare('VACUUM INTO ?').run(backupPath);
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const [table, column] of targets) {
+        this.db
+          .prepare(`UPDATE ${table} SET ${column} = replace(${column}, ?, ?) WHERE ${column} LIKE ?`)
+          .run(legacyDataDir, this.dataDir, matchPattern);
+      }
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
     }
   }
 
