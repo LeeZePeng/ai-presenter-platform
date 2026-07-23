@@ -1,0 +1,16 @@
+{
+  "name": "ai-presenter-remotion-runtime",
+  "version": "4.0.490",
+  "private": true,
+  "dependencies": {
+    "@remotion/cli": "4.0.490",
+    "@remotion/fonts": "4.0.490",
+    "@remotion/media": "4.0.490",
+    "@types/node": "22.19.15",
+    "@types/react": "18.3.28",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "remotion": "4.0.490",
+    "typescript": "5.5.4"
+  }
+}

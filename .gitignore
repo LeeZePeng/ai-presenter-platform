@@ -1,0 +1,36 @@
+node_modules/
+.pnpm-store/
+web/dist/
+
+# Runtime data and generated artifacts
+data/
+logs/
+out/
+backups/
+server-sync/
+vendor/
+bin/
+coverage/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+.cloudflared/
+/.deployment-version.json
+
+# Local databases and logs
+*.log
+*.sqlite
+*.sqlite-*
+
+# Editor/OS files and local safety copies
+.DS_Store
+._*
+*.pre-*
+__pycache__/
+*.py[cod]
+
+# pnpm is the repository package manager. A nested npm lockfile may still be
+# used by an isolated runtime package.
+/package-lock.json

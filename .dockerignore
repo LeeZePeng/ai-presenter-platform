@@ -1,0 +1,17 @@
+node_modules
+.pnpm-store
+data
+logs
+out
+backups
+server-sync
+vendor
+bin
+.env
+.env.*
+.git
+coverage
+*.log
+*.sqlite*
+._*
+*.pre-*

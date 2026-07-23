@@ -1,0 +1,11 @@
+services:
+  app:
+    build: .
+    ports:
+      - "4317:4317"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ${HOME}/.codex:/home/node/.codex:ro
+    restart: unless-stopped

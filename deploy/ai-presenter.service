@@ -1,0 +1,27 @@
+[Unit]
+Description=AI Presenter Platform
+After=network-online.target nginx.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=presenter
+Group=presenter
+WorkingDirectory=/opt/ai-presenter-platform
+EnvironmentFile=/etc/ai-presenter-platform.env
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectHome=read-only
+ProtectSystem=full
+ReadWritePaths=/var/lib/ai-presenter
+LimitNOFILE=65535
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
