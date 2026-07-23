@@ -161,7 +161,7 @@ export class JobWorker {
           });
         } else {
           this.db.updateJob(job.id, {status: 'provisioning', stage: '转写原片', progress: 10});
-          this.db.addEvent(job.id, 'info', 'asr_start', '开始在 ECS CPU 上转写参考视频，暂不启动 GPU');
+          this.db.addEvent(job.id, 'info', 'asr_start', '开始转写参考视频，优先使用云端 ASR，暂不启动数字人 GPU');
           const transcript = await this.transcriber.transcribe(job.assets.sourceVideo, workspace, {
             isCancelled: () => this.db.isCancelRequested(job.id),
             onEvent: (kind, message, data) => this.db.addEvent(job.id, 'info', kind, message, data),

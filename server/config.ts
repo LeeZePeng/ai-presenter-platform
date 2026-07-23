@@ -21,6 +21,12 @@ const expandHome = (value: string): string =>
 const presenterApiUrl = env.AI_PRESENTER_API_URL?.trim() || 'http://106.75.239.93:7860';
 const presenterComfyUrl = env.AI_PRESENTER_COMFY_URL?.trim() || 'http://106.75.239.93:8188';
 const presenterWorkerCount = Math.min(4, Math.max(1, Math.floor(number('AI_PRESENTER_GPU_WORKERS', 1))));
+const dataDir = path.resolve(env.DATA_DIR ?? './data');
+const configuredAsrProvider = env.ASR_PROVIDER?.trim().toLowerCase() || 'local';
+if (!new Set(['local', 'modelverse']).has(configuredAsrProvider)) {
+  throw new Error('ASR_PROVIDER must be local or modelverse');
+}
+const asrProvider = configuredAsrProvider as 'local' | 'modelverse';
 const workerUrl = (base: string, index: number): string => {
   if (index === 0) return base.replace(/\/$/, '');
   const url = new URL(base);
@@ -31,7 +37,7 @@ const workerUrl = (base: string, index: number): string => {
 export const config = {
   port: number('PORT', 4317),
   host: env.HOST?.trim() || '0.0.0.0',
-  dataDir: path.resolve(env.DATA_DIR ?? './data'),
+  dataDir,
   appAccessToken: env.APP_ACCESS_TOKEN?.trim() ?? '',
   adminAccessToken: env.ADMIN_ACCESS_TOKEN?.trim() ?? '',
   sessionCookieSecure: bool('SESSION_COOKIE_SECURE', false),
@@ -78,6 +84,12 @@ export const config = {
       '/var/lib/ai-presenter/runtime/fonts/NotoSansCJKSC-Black.otf',
   },
   asr: {
+    provider: asrProvider,
+    cloudApiKey: env.ASR_CLOUD_API_KEY?.trim() || env.MODELVERSE_API_KEY?.trim() || '',
+    cloudBaseUrl: env.ASR_CLOUD_BASE_URL?.trim() || 'https://api.modelverse.cn/v1',
+    cloudModel: env.ASR_CLOUD_MODEL?.trim() || 'whisper-1',
+    localFallback: bool('ASR_LOCAL_FALLBACK', true),
+    cacheDir: path.resolve(env.ASR_CACHE_DIR?.trim() || path.join(dataDir, 'asr-cache')),
     bin: path.resolve(env.ASR_BIN?.trim() || '/var/lib/ai-presenter/runtime/whisper/whisper-cli'),
     model: path.resolve(env.ASR_MODEL?.trim() || '/var/lib/ai-presenter/runtime/whisper/ggml-small.bin'),
     ffmpegBin: env.FFMPEG_BIN?.trim() || 'ffmpeg',
@@ -110,8 +122,8 @@ export const config = {
     launchdLabel: env.DEPLOY_LAUNCHD_LABEL?.trim() || 'com.ai-presenter.platform',
     healthUrl: env.DEPLOY_HEALTH_URL?.trim() || `http://127.0.0.1:${number('PORT', 4317)}/api/health`,
     healthTimeoutMs: number('DEPLOY_HEALTH_TIMEOUT_SECONDS', 90) * 1000,
-    stateFile: path.join(path.resolve(env.DATA_DIR ?? './data'), 'deployment-state.json'),
-    logFile: path.join(path.resolve(env.DATA_DIR ?? './data'), 'deployment.log'),
+    stateFile: path.join(dataDir, 'deployment-state.json'),
+    logFile: path.join(dataDir, 'deployment.log'),
   },
 
   codex: {

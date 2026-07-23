@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {normalizeWhisperTranscript, whisperProgressPercent} from '../server/asr.js';
+import {normalizeOpenAiTranscript, normalizeWhisperTranscript, whisperProgressPercent} from '../server/asr.js';
 
 describe('normalizeWhisperTranscript', () => {
   it('normalizes whisper.cpp timestamps and text', () => {
@@ -31,6 +31,40 @@ describe('normalizeWhisperTranscript', () => {
       transcription: [{offsets: {from: 500, to: 1500}, text: 'hello world'}],
     });
     expect(result.segments[0]).toEqual({startSeconds: 0.5, endSeconds: 1.5, text: 'hello world'});
+  });
+});
+
+describe('normalizeOpenAiTranscript', () => {
+  it('normalizes ModelVerse whisper-1 verbose JSON segments', () => {
+    const result = normalizeOpenAiTranscript({
+      task: 'transcribe',
+      language: 'chinese',
+      duration: 5.47,
+      text: '这是云端语音转写测试 数字人平台正在验证时间戳',
+      segments: [
+        {id: 0, start: 0, end: 2.6, text: '这是云端语音转写测试'},
+        {id: 1, start: 2.6, end: 5.6, text: ' 数字人平台正在验证时间戳 '},
+      ],
+    });
+
+    expect(result.language).toBe('chinese');
+    expect(result.text).toBe('这是云端语音转写测试 数字人平台正在验证时间戳');
+    expect(result.segments).toEqual([
+      {startSeconds: 0, endSeconds: 2.6, text: '这是云端语音转写测试'},
+      {startSeconds: 2.6, endSeconds: 5.6, text: '数字人平台正在验证时间戳'},
+    ]);
+  });
+
+  it('drops malformed or backwards cloud segments', () => {
+    const result = normalizeOpenAiTranscript({
+      language: 'zh',
+      segments: [
+        {start: -1, end: 1, text: 'negative'},
+        {start: 3, end: 2, text: 'backwards'},
+        {start: 1, end: 2, text: '保留'},
+      ],
+    });
+    expect(result.segments).toEqual([{startSeconds: 1, endSeconds: 2, text: '保留'}]);
   });
 });
 

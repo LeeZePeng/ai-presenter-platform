@@ -11,7 +11,7 @@ Web 表单 / 文件上传
         ↓
 SQLite 持久化队列
         ↓
-复刻任务先在 ECS CPU 上完成带时间戳 ASR
+复刻任务先用 ModelVerse whisper-1 完成带时间戳 ASR
         ↓
 转写通过 → 启动 CompShare 实例
         ↓
@@ -32,7 +32,7 @@ Codex CLI + gpt-5.6-sol + AI 口播 skill
 - 支持粘贴 YouTube 单条视频链接直接导入，也可按关键词、发布时间和授权类型搜索热门视频，按播放量与日均播放速度排序后“一键导入并复刻”。
 - 形象和参考声音可在首次提交任务时保存为个人素材；后续复刻直接从形象库、声音库选择，任务会复制一份素材快照，避免以后修改素材影响历史任务。
 - 复刻视频默认使用“完整复刻”。“精简复刻”支持 5 秒起的任意目标时长，允许删除次要观点、案例、展开论据和支线；保留核心主题、关键论点、完整开场与结束语，已保留内容仍按原片顺序和视觉语言复刻。
-- 复刻任务在开 GPU 前由 whisper.cpp 确定性转写原片，并将带时间戳结果锁定给后续文案与语义选片使用。
+- 复刻任务在开数字人 GPU 前优先由 ModelVerse `whisper-1` 转写原片，并将带时间戳结果锁定给后续文案与语义选片使用；云端失败时自动切换 Mac Metal whisper.cpp。
 - 先生成并锁定唯一最终旁白，再从这条音频生成逐句时间轴；字幕、PPT、卡片和原片镜头都按 3-8 秒语义 cue 对齐，禁止使用 InfiniteTalk 分段作为视觉切换点。
 - 人物图片、参考视频、参考声音上传与权限确认。
 - 普通生成任务无需填写目标时长，由 AI 按内容自动规划自然时长，平台上限为 120 秒。
@@ -113,10 +113,16 @@ GPU_HEALTH_URL=http://<digital-human-host>:7860/
 AI_PRESENTER_API_URL=http://<digital-human-host>:7860
 AI_PRESENTER_COMFY_URL=http://<digital-human-host>:8188
 AI_PRESENTER_GPU_WORKERS=4
+ASR_PROVIDER=modelverse
+ASR_CLOUD_BASE_URL=https://api.modelverse.cn/v1
+ASR_CLOUD_MODEL=whisper-1
+ASR_LOCAL_FALLBACK=true
+ASR_CACHE_DIR=/var/lib/ai-presenter/data/asr-cache
 ASR_BIN=/var/lib/ai-presenter/runtime/whisper/whisper-cli
 ASR_MODEL=/var/lib/ai-presenter/runtime/whisper/ggml-small.bin
 ASR_LANGUAGE=auto
 ASR_THREADS=8
+ASR_USE_GPU=true
 ASR_TIMEOUT_MINUTES=120
 REMOTION_RUNTIME_DIR=/var/lib/ai-presenter/runtime/remotion
 REMOTION_BROWSER_EXECUTABLE=/usr/lib64/chromium-browser/headless_shell
@@ -191,7 +197,7 @@ API key 只从 systemd 环境中的 `MODELVERSE_API_KEY` 读取，不写入 Code
 
 若服务器改用 ChatGPT/Codex 登录而不是自定义模型 API，移除 `CODEX_MODEL_PROVIDER`，保留 `CODEX_MODEL=gpt-5.6-sol` 和 `CODEX_REASONING_EFFORT=xhigh`，并设置 `CODEX_PROXY_URL=http://127.0.0.1:7890`。每个口播任务启动 Codex 前，worker 会通过 Mihomo controller 只扫描名称标记为美国的节点，并锁定首个能返回 Codex JSON 接口的节点；全部失败时任务会提前失败，不降级到其他地区。该代理仅注入 Codex 主进程；Codex 启动的 TTS、InfiniteTalk、FFmpeg 等工具子进程会剔除代理变量，继续使用服务器直连网络。
 
-生产 worker 还要求 Python 3.11、FFmpeg 和 whisper.cpp。先安装 CPU ASR runtime：
+生产 worker 还要求 Python 3.11、FFmpeg 和 whisper.cpp。whisper.cpp 是 ModelVerse 不可用时的本机 Metal 兜底：
 
 ```bash
 sudo bash deploy/install-whisper-runtime.sh
@@ -211,7 +217,7 @@ bash deploy/install-remotion-runtime.sh
 
 ## 一小时电源策略
 
-1. 新任务写入 SQLite；复刻任务先在 ECS CPU 上完成 ASR，主题/文案任务可直接进入下一步。
+1. 新任务写入 SQLite；复刻任务优先通过 ModelVerse 完成 ASR，失败时回退本机 Metal，主题/文案任务可直接进入下一步。
 2. ASR 成功或无需 ASR 后触发 `ensureRunning()`。
 3. 实例为 `Stopped` 时调用启动 API，并记录 `billing_window_started_at`。
 4. `next_power_check_at = started_at + 1 hour`。

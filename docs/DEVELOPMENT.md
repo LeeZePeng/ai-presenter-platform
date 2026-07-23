@@ -73,7 +73,7 @@ flowchart LR
     E --> FS["任务与素材文件系统"]
     E --> YT["YouTube Data API / yt-dlp"]
     E --> W["单任务 Worker"]
-    W --> ASR["ECS CPU: whisper.cpp"]
+    W --> ASR["ModelVerse whisper-1 / Mac Metal fallback"]
     W --> P["CompShare 电源协调器"]
     P --> GPU["4090 48GB 数字人实例"]
     W --> C["Codex CLI / gpt-5.6-sol xhigh"]
@@ -176,7 +176,7 @@ ai-presenter-platform/
 - FFmpeg/ffprobe。
 - Codex CLI 0.144.4 或更高。
 - Python 3.11 或更高版本，用于生成 skill 的辅助脚本；由 `PYTHON_BIN` 指向实际解释器，不依赖固定命令名。
-- whisper.cpp，用于 ECS CPU 转写和旁白时间轴。
+- ModelVerse `whisper-1`，用于原片云端转写；whisper.cpp 用作 Mac Metal 兜底并生成旁白时间轴。
 - Headless Chromium、Noto Sans CJK SC 字体、共享 Remotion runtime。
 - `yt-dlp`，用于 YouTube 回退搜索和下载。
 - CompShare 4090 48GB 实例，提供 InfiniteTalk Gradio/API 服务。
@@ -241,7 +241,7 @@ stateDiagram-v2
 2. 上传文件移入 `data/jobs/<id>/assets`；素材库和 YouTube 导入会复制快照，不引用可变原文件。
 3. SQLite 写入任务和 `queued` 事件。
 4. 单 worker 按创建时间领取最早的 `pending` 任务。
-5. 复刻任务先在 ECS CPU 上抽取 16 kHz 单声道 WAV，并由 whisper.cpp 写出带时间戳转写；此时不需要启动 GPU。
+5. 复刻任务先压缩为 16 kHz/64 kbps 单声道 MP3，通过 ModelVerse `whisper-1` 获取带时间戳转写；云端失败时自动抽取 WAV 并回退 Mac Metal whisper.cpp。此时不需要启动收费的数字人 GPU。
 6. 电源协调器确认 CompShare 实例状态；必要时启动或恢复数字人服务。
 7. worker 生成强约束 prompt，启动 Codex CLI。若启用了代理，每次启动前只遍历并探测美国节点。
 8. Codex 在同一 Goal 中执行视频生成 skill：分析、文案、发音、TTS、时间轴、InfiniteTalk、Remotion、封面和自检。
@@ -598,12 +598,18 @@ CompShare 返回 `Initializing` 时会映射为内部 `Starting`，不应误报 
 
 | 变量 | 生产示例 |
 | --- | --- |
+| `ASR_PROVIDER` | `modelverse` |
+| `ASR_CLOUD_BASE_URL` | `https://api.modelverse.cn/v1` |
+| `ASR_CLOUD_MODEL` | `whisper-1` |
+| `ASR_CLOUD_API_KEY` | 留空时复用 `MODELVERSE_API_KEY` |
+| `ASR_LOCAL_FALLBACK` | `true` |
+| `ASR_CACHE_DIR` | `<DATA_DIR>/asr-cache` |
 | `ASR_BIN` | whisper-cli 的机器实际绝对路径 |
 | `ASR_MODEL` | ggml 模型的机器实际绝对路径 |
 | `PYTHON_BIN` | Python 3.11+ 解释器的机器实际路径 |
 | `ASR_LANGUAGE` | `auto` |
 | `ASR_THREADS` | `8` |
-| `ASR_USE_GPU` | `false`（Mac launchd 默认使用 CPU，避免 Metal 缓冲分配失败） |
+| `ASR_USE_GPU` | `true`（仅云端失败时启用本机 Metal） |
 | `ASR_TIMEOUT_MINUTES` | `120` |
 | `REMOTION_RUNTIME_DIR` | 独立 Remotion runtime 绝对路径 |
 | `REMOTION_SKILL_PATH` | remotion-best-practices skill 绝对路径 |
