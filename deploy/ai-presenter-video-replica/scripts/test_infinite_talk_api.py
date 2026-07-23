@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -38,6 +40,96 @@ class PromptIdRecoveryTest(unittest.TestCase):
     def test_ambiguous_prefix_is_rejected(self) -> None:
         with self.assertRaises(SystemExit):
             MODULE.matching_prompt_id("58c6225f", ["58c6225f-a", "58c6225f-b"])
+
+    def test_comfy_history_error_is_failed(self) -> None:
+        history = {"prompt-1": {"status": {"status_str": "error", "completed": False}}}
+        with patch.object(MODULE, "history_for_prompt", return_value=("prompt-1", history)):
+            self.assertEqual(MODULE.comfy_prompt_state("http://comfy", "prompt-1"), "failed")
+
+    def test_comfy_queue_prompt_is_active(self) -> None:
+        queue = {"queue_running": [[1, "prompt-1"]], "queue_pending": []}
+        with (
+            patch.object(MODULE, "history_for_prompt", return_value=("prompt-1", {})),
+            patch.object(MODULE, "http_json", return_value=queue),
+        ):
+            self.assertEqual(MODULE.comfy_prompt_state("http://comfy", "prompt-1"), "active")
+
+
+class SubmitRetryTest(unittest.TestCase):
+    def test_lost_prompt_is_resubmitted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            args = argparse.Namespace(output_dir=Path(directory), submit_attempts=3)
+            attempts = [
+                {"saved": [], "retry_reason": "prompt_missing"},
+                {"saved": ["segment.mp4"]},
+            ]
+            with patch.object(MODULE, "submit_once", side_effect=attempts) as mocked:
+                result = MODULE.submit(args)
+
+            self.assertEqual(mocked.call_count, 2)
+            self.assertEqual(result["saved"], ["segment.mp4"])
+            self.assertEqual(result["submit_attempt"], 2)
+            stored = json.loads((Path(directory) / "result.json").read_text())
+            self.assertEqual(stored["submit_attempt"], 2)
+
+    def test_active_prompt_timeout_is_not_duplicated(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            args = argparse.Namespace(output_dir=Path(directory), submit_attempts=3)
+            with patch.object(
+                MODULE,
+                "submit_once",
+                return_value={"saved": [], "retry_reason": "poll_timeout"},
+            ) as mocked:
+                result = MODULE.submit(args)
+
+            self.assertEqual(mocked.call_count, 1)
+            self.assertEqual(result["retry_reason"], "poll_timeout")
+
+
+class DirectWorkflowTest(unittest.TestCase):
+    def test_history_workflow_is_reused_with_unique_inputs(self) -> None:
+        template = {
+            "audio": {"class_type": "LoadAudio", "inputs": {"audio": "audio.wav"}},
+            "unused_audio": {"class_type": "LoadAudio", "inputs": {"audio": "sample.wav"}},
+            "person": {"class_type": "LoadImage", "inputs": {"image": "person_ref.png"}},
+            "output": {"class_type": "VHS_VideoCombine", "inputs": {"filename_prefix": "InfiniteTalk"}},
+        }
+        history = {"prompt-id": {"prompt": [0, "prompt-id", template, {}, []]}}
+
+        extracted = MODULE.workflow_from_history(history)
+        workflow = MODULE.direct_workflow(
+            extracted,
+            "person-unique.png",
+            "audio-unique.wav",
+            None,
+            "InfiniteTalk-unique",
+            {"seed": 77},
+        )
+
+        self.assertEqual(workflow["person"]["inputs"]["image"], "person-unique.png")
+        self.assertEqual(workflow["audio"]["inputs"]["audio"], "audio-unique.wav")
+        self.assertEqual(workflow["unused_audio"]["inputs"]["audio"], "sample.wav")
+        self.assertEqual(workflow["output"]["inputs"]["filename_prefix"], "InfiniteTalk-unique")
+        self.assertEqual(template["audio"]["inputs"]["audio"], "audio.wav")
+
+    def test_checkpoint_loader_finds_completed_workflow(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            history_path = Path(directory) / "segments" / "segment-001" / "comfy_history.json"
+            history_path.parent.mkdir(parents=True)
+            history_path.write_text(
+                json.dumps({"prompt-id": {"prompt": [0, "prompt-id", {"1": {"class_type": "Node"}}, {}, []]}})
+            )
+
+            workflow = MODULE.workflow_template_from_checkpoint(Path(directory))
+
+            self.assertEqual(workflow, {"1": {"class_type": "Node"}})
+
+    def test_checkpoint_loader_falls_back_to_bundled_template(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workflow = MODULE.workflow_template_from_checkpoint(Path(directory))
+
+            self.assertIsInstance(workflow, dict)
+            self.assertIn("120", workflow)
 
 
 class WorkerPoolTest(unittest.TestCase):

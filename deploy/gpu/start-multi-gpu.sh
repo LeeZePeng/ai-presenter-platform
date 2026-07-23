@@ -17,21 +17,20 @@ trap cleanup EXIT INT TERM
 start_worker() {
   local gpu_index="$1"
   local comfy_port="$2"
-  local gradio_port="$3"
   CUDA_VISIBLE_DEVICES="$gpu_index" \
-  GRADIO_SERVER_NAME=127.0.0.1 \
-  GRADIO_SERVER_PORT="$gradio_port" \
-    python start.py --listen 127.0.0.1 --port "$comfy_port" \
+    python main.py --listen 127.0.0.1 --port "$comfy_port" \
       >"/root/ComfyUI/worker-${gpu_index}.log" 2>&1 &
   worker_pids+=("$!")
 }
 
-start_worker 0 18188 17860
-start_worker 1 18189 17861
-start_worker 2 18190 17862
-start_worker 3 18191 17863
+start_worker 0 18188
+start_worker 1 18189
+start_worker 2 18190
+start_worker 3 18191
 
-python /root/ComfyUI/path_router.py --port 7860 --worker-ports 17860 17861 17862 17863 \
+# Keep port 7860 as a compatibility alias, but route it to the clean ComfyUI
+# API workers. Digital-human jobs submit directly through the ComfyUI API.
+python /root/ComfyUI/path_router.py --port 7860 --worker-ports 18188 18189 18190 18191 \
   > /root/ComfyUI/gradio-router.log 2>&1 &
 worker_pids+=("$!")
 python /root/ComfyUI/path_router.py --port 8188 --worker-ports 18188 18189 18190 18191 \
