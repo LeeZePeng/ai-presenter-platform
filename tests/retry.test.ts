@@ -47,11 +47,32 @@ describe('createRetryJob', () => {
     const narration = path.join(sourceDir, 'out', 'audio', 'final_narration.wav');
     mkdirSync(path.dirname(narration), {recursive: true});
     writeFileSync(narration, 'final narration');
+    const transcript = path.join(sourceDir, 'out', 'analysis', 'source_transcript.json');
+    mkdirSync(path.dirname(transcript), {recursive: true});
+    writeFileSync(transcript, JSON.stringify({sourcePath: path.join(sourceDir, 'assets', 'sourceVideo.mp4')}));
+    const presenter = path.join(sourceDir, 'remotion', 'public', 'presenter', 'render', 'segment-001.mp4');
+    mkdirSync(path.dirname(presenter), {recursive: true});
+    writeFileSync(presenter, 'rendered presenter');
+    writeFileSync(
+      path.join(sourceDir, 'out', 'analysis', 'presenter_render_manifest.json'),
+      JSON.stringify({presenterRenderPaths: [presenter]}),
+    );
+    writeFileSync(
+      path.join(sourceDir, 'out', 'checkpoints', 'segments', 'state.json'),
+      JSON.stringify({renderPath: presenter}),
+    );
 
     const result = createRetryJob(db, jobsDir, 'source-job', 'retry-job');
 
     expect(result.job.status).toBe('pending');
-    expect(result.job.metadata).toMatchObject({retryOf: 'source-job', retryRootId: 'source-job', retryCount: 1});
+    expect(result.job.metadata).toMatchObject({
+      retryOf: 'source-job',
+      retryRootId: 'source-job',
+      retryCount: 1,
+      reusedSourceTranscript: true,
+      reusedPresenterRender: true,
+      sourceTranscriptPath: path.join(jobsDir, 'retry-job', 'out', 'analysis', 'source_transcript.json'),
+    });
     expect(result.reusedCheckpoints).toBe(true);
     expect(result.reusedCompletedArtifacts).toBe(false);
     expect(readFileSync(result.job.assets.avatarImage!, 'utf8')).toBe('avatar');
@@ -59,6 +80,16 @@ describe('createRetryJob', () => {
       .toBe('completed segment');
     expect(readFileSync(path.join(jobsDir, 'retry-job', 'out', 'audio', 'final_narration.wav'), 'utf8'))
       .toBe('final narration');
+    expect(readFileSync(path.join(jobsDir, 'retry-job', 'remotion', 'public', 'presenter', 'render', 'segment-001.mp4'), 'utf8'))
+      .toBe('rendered presenter');
+    const renderManifest = JSON.parse(
+      readFileSync(path.join(jobsDir, 'retry-job', 'out', 'analysis', 'presenter_render_manifest.json'), 'utf8'),
+    );
+    expect(renderManifest.presenterRenderPaths[0]).toContain(path.join('retry-job', 'remotion', 'public', 'presenter'));
+    const checkpointState = JSON.parse(
+      readFileSync(path.join(jobsDir, 'retry-job', 'out', 'checkpoints', 'segments', 'state.json'), 'utf8'),
+    );
+    expect(checkpointState.renderPath).toContain(path.join('retry-job', 'remotion', 'public', 'presenter'));
   });
 
   it('copies a completed output package for validation-only repair', () => {

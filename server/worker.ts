@@ -151,6 +151,10 @@ export class JobWorker {
       job.metadata.visualRepairOnly === true &&
       existsSync(path.join(workspace, 'out', 'final.mp4')) &&
       existsSync(path.join(workspace, 'out', 'result.json'));
+    const reusePresenterRender =
+      job.metadata.reusedPresenterRender === true &&
+      existsSync(path.join(workspace, 'out', 'analysis', 'presenter_render_manifest.json')) &&
+      existsSync(path.join(workspace, 'remotion', 'public', 'presenter', 'render'));
     mkdirSync(path.join(workspace, 'out'), {recursive: true});
     ensureRemotionRuntimeLink(workspace, this.options.remotionRuntimeDir);
     const remotionFontDir = stageRemotionFonts(workspace, this.options.cjkFontPaths);
@@ -159,7 +163,7 @@ export class JobWorker {
       if (job.mode === 'clone') {
         if (!job.assets.sourceVideo) throw new Error('复刻任务缺少参考视频');
         const reusableTranscript =
-          (visualRepairOnly || resumeExistingWorkspace) &&
+          (visualRepairOnly || resumeExistingWorkspace || job.metadata.reusedSourceTranscript === true) &&
           typeof job.metadata.sourceTranscriptPath === 'string' &&
           existsSync(job.metadata.sourceTranscriptPath)
             ? job.metadata.sourceTranscriptPath
@@ -173,7 +177,9 @@ export class JobWorker {
           });
           this.db.addEvent(job.id, 'info', 'asr_reused', resumeExistingWorkspace
             ? '超时续跑复用原片转写和当前工作目录，不重复执行 ASR'
-            : '视觉返修复用原片转写，不重复执行 ASR', {
+            : visualRepairOnly
+              ? '视觉返修复用原片转写，不重复执行 ASR'
+              : '重试任务复用已完成的原片转写，不重复执行 ASR', {
             sourceTranscriptPath,
           });
         } else {
@@ -199,12 +205,25 @@ export class JobWorker {
         }
         if (this.db.isCancelRequested(job.id)) throw new Error('任务已取消');
         this.db.updateJob(job.id, {
-          stage: visualRepairOnly ? '准备修复旧成片' : resumeExistingWorkspace ? '恢复超时断点' : '唤醒算力',
+          stage: visualRepairOnly
+            ? '准备修复旧成片'
+            : resumeExistingWorkspace
+              ? '恢复超时断点'
+              : reusePresenterRender
+                ? '复用数字人高清素材'
+                : '唤醒算力',
           progress: resumeExistingWorkspace ? resumeProgress : 16,
         });
       }
-      if (visualRepairOnly) {
-        this.db.addEvent(job.id, 'info', 'visual_repair_reuse', '旧任务仅修复视觉，复用旁白和数字人结果，不启动 GPU');
+      if (visualRepairOnly || reusePresenterRender) {
+        this.db.addEvent(
+          job.id,
+          'info',
+          visualRepairOnly ? 'visual_repair_reuse' : 'presenter_render_reused',
+          visualRepairOnly
+            ? '旧任务仅修复视觉，复用旁白和数字人结果，不启动 GPU'
+            : '重试任务复用完整数字人高清素材，不启动 GPU',
+        );
       } else {
         this.db.addEvent(job.id, 'info', 'power', '正在确认 GPU 实例状态');
         await this.power.ensureRunning(`任务 ${job.id.slice(0, 8)} 开始执行`);
@@ -224,6 +243,8 @@ export class JobWorker {
           ? '正在续接同一 Goal 修复 Remotion、字体和人物裁切'
           : resumeExistingWorkspace
             ? 'GPU 已就绪，正在原任务目录和同一 Goal 中从断点继续'
+            : reusePresenterRender
+              ? '已复用 ASR、旁白、口型和高清人物素材，不启动 GPU，开始生成单轨并重新渲染'
             : 'GPU 已就绪，开始执行口播 skill',
       );
       const current = this.db.getJob(job.id)!;

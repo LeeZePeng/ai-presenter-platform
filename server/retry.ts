@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import type {AppDatabase} from './db.js';
 import type {JobAssets, JobCreateInput, JobRecord} from './types.js';
@@ -27,13 +27,12 @@ const copyAssets = (source: JobRecord, destinationDir: string): JobAssets => {
   return assets;
 };
 
-const rewriteCopiedManifestPaths = (
-  outputDir: string,
+const rewriteJsonFilePaths = (
+  filename: string,
   sourceWorkspace: string,
   retryWorkspace: string,
 ): void => {
-  const manifestPath = path.join(outputDir, 'result.json');
-  if (!existsSync(manifestPath)) return;
+  if (!existsSync(filename)) return;
   const rewrite = (value: unknown): unknown => {
     if (typeof value === 'string') {
       const relative = path.relative(sourceWorkspace, value);
@@ -48,8 +47,50 @@ const rewriteCopiedManifestPaths = (
     }
     return value;
   };
-  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as unknown;
-  writeFileSync(manifestPath, `${JSON.stringify(rewrite(manifest), null, 2)}\n`);
+  try {
+    const manifest = JSON.parse(readFileSync(filename, 'utf8')) as unknown;
+    const rewritten = rewrite(manifest);
+    if (JSON.stringify(rewritten) !== JSON.stringify(manifest)) {
+      writeFileSync(filename, `${JSON.stringify(rewritten, null, 2)}\n`);
+    }
+  } catch {
+    // A partially written receipt is not reusable, but must not block the other durable checkpoints.
+  }
+};
+
+const rewriteCopiedJsonPaths = (
+  directory: string,
+  sourceWorkspace: string,
+  retryWorkspace: string,
+): void => {
+  if (!existsSync(directory)) return;
+  for (const entry of readdirSync(directory, {withFileTypes: true})) {
+    const filename = path.join(directory, entry.name);
+    if (entry.isDirectory()) rewriteCopiedJsonPaths(filename, sourceWorkspace, retryWorkspace);
+    else if (entry.isFile() && entry.name.endsWith('.json')) {
+      rewriteJsonFilePaths(filename, sourceWorkspace, retryWorkspace);
+    }
+  }
+};
+
+const hasReusablePresenterRender = (manifestPath: string): boolean => {
+  if (!existsSync(manifestPath)) return false;
+  try {
+    const value = JSON.parse(readFileSync(manifestPath, 'utf8')) as {presenterRenderPaths?: unknown};
+    return (
+      Array.isArray(value.presenterRenderPaths) &&
+      value.presenterRenderPaths.length > 0 &&
+      value.presenterRenderPaths.every(
+        (candidate) => {
+          if (typeof candidate !== 'string' || !existsSync(candidate)) return false;
+          const stats = statSync(candidate);
+          return stats.isFile() && stats.size > 0;
+        },
+      )
+    );
+  } catch {
+    return false;
+  }
 };
 
 export const createRetryJob = (
@@ -57,7 +98,13 @@ export const createRetryJob = (
   jobsDir: string,
   sourceId: string,
   retryId: string,
-): {job: JobRecord; reusedCheckpoints: boolean; reusedCompletedArtifacts: boolean} => {
+): {
+  job: JobRecord;
+  reusedCheckpoints: boolean;
+  reusedCompletedArtifacts: boolean;
+  reusedSourceTranscript: boolean;
+  reusedPresenterRender: boolean;
+} => {
   const source = db.getJob(sourceId);
   if (!source) throw new RetryJobError('任务不存在', 404);
   if (!['failed', 'cancelled'].includes(source.status)) {
@@ -76,6 +123,10 @@ export const createRetryJob = (
   const retryCheckpoints = path.join(retryWorkspace, 'out', 'checkpoints');
   const sourceAudio = path.join(sourceWorkspace, 'out', 'audio');
   const retryAudio = path.join(retryWorkspace, 'out', 'audio');
+  const sourceAnalysis = path.join(sourceWorkspace, 'out', 'analysis');
+  const retryAnalysis = path.join(retryWorkspace, 'out', 'analysis');
+  const sourceRemotion = path.join(sourceWorkspace, 'remotion');
+  const retryRemotion = path.join(retryWorkspace, 'remotion');
   const reusedCheckpoints = existsSync(sourceCheckpoints);
   const reusedCompletedArtifacts =
     existsSync(path.join(sourceOut, 'final.mp4')) && existsSync(path.join(sourceOut, 'result.json'));
@@ -84,12 +135,34 @@ export const createRetryJob = (
     const assets = copyAssets(source, path.join(retryWorkspace, 'assets'));
     if (reusedCompletedArtifacts) {
       cpSync(sourceOut, retryOut, {recursive: true});
-      rewriteCopiedManifestPaths(retryOut, sourceWorkspace, retryWorkspace);
+      if (existsSync(sourceRemotion)) cpSync(sourceRemotion, retryRemotion, {recursive: true});
     } else if (reusedCheckpoints) {
       mkdirSync(path.dirname(retryCheckpoints), {recursive: true});
       cpSync(sourceCheckpoints, retryCheckpoints, {recursive: true});
       if (existsSync(sourceAudio)) cpSync(sourceAudio, retryAudio, {recursive: true});
+      mkdirSync(retryAnalysis, {recursive: true});
+      for (const filename of [
+        'source_transcript.json',
+        'presenter_base_manifest.json',
+        'presenter_render_manifest.json',
+      ]) {
+        const sourceFile = path.join(sourceAnalysis, filename);
+        if (existsSync(sourceFile)) copyFileSync(sourceFile, path.join(retryAnalysis, filename));
+      }
+      const sourcePresenter = path.join(sourceRemotion, 'public', 'presenter');
+      if (existsSync(sourcePresenter)) {
+        cpSync(sourcePresenter, path.join(retryRemotion, 'public', 'presenter'), {recursive: true});
+      }
     }
+    rewriteCopiedJsonPaths(retryWorkspace, sourceWorkspace, retryWorkspace);
+    const retryTranscript = path.join(retryAnalysis, 'source_transcript.json');
+    const reusedSourceTranscript = existsSync(retryTranscript);
+    const reusedPresenterRender = hasReusablePresenterRender(
+      path.join(retryAnalysis, 'presenter_render_manifest.json'),
+    );
+    const sourceTranscriptSha256 = reusedSourceTranscript
+      ? createHash('sha256').update(readFileSync(retryTranscript)).digest('hex')
+      : source.metadata.sourceTranscriptSha256;
     const input: JobCreateInput = {
       title: source.title,
       mode: source.mode,
@@ -111,15 +184,21 @@ export const createRetryJob = (
       retryCount,
       reusedCheckpoints,
       reusedCompletedArtifacts,
+      reusedSourceTranscript,
+      reusedPresenterRender,
+      sourceTranscriptPath: reusedSourceTranscript ? retryTranscript : undefined,
+      sourceTranscriptSha256,
     });
     db.addEvent(retryId, 'info', 'retry_created', `由任务 ${source.id.slice(0, 12)} 创建重试`, {
       retryOf: source.id,
       retryCount,
       reusedCheckpoints,
       reusedCompletedArtifacts,
+      reusedSourceTranscript,
+      reusedPresenterRender,
     });
     db.addEvent(source.id, 'info', 'retried', `已创建重试任务 ${retryId.slice(0, 12)}`, {retryJobId: retryId});
-    return {job, reusedCheckpoints, reusedCompletedArtifacts};
+    return {job, reusedCheckpoints, reusedCompletedArtifacts, reusedSourceTranscript, reusedPresenterRender};
   } catch (error) {
     rmSync(retryWorkspace, {recursive: true, force: true});
     throw error;
@@ -220,8 +299,8 @@ export const createVisualRepairJob = (
   try {
     const assets = copyAssets(source, path.join(retryWorkspace, 'assets'));
     cpSync(sourceOut, retryOut, {recursive: true});
-    rewriteCopiedManifestPaths(retryOut, sourceWorkspace, retryWorkspace);
     if (existsSync(sourceRemotion)) cpSync(sourceRemotion, retryRemotion, {recursive: true});
+    rewriteCopiedJsonPaths(retryWorkspace, sourceWorkspace, retryWorkspace);
     const input: JobCreateInput = {
       title: `${source.title}（视觉返修）`,
       mode: source.mode,

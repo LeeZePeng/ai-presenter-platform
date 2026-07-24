@@ -488,11 +488,13 @@ app.post('/api/admin/jobs/:id/retry', (req, res, next) => {
   if (!config.jobsEnabled) return res.status(503).json({error: '生成服务正在维护，请稍后再试'});
   try {
     const result = createRetryJob(db, jobsDir, req.params.id, randomUUID());
-    power.requestPowerForQueuedJob(result.job.id);
+    if (!result.reusedPresenterRender) power.requestPowerForQueuedJob(result.job.id);
     return res.status(202).json({
       job: publicJob(result.job),
       reusedCheckpoints: result.reusedCheckpoints,
       reusedCompletedArtifacts: result.reusedCompletedArtifacts,
+      reusedSourceTranscript: result.reusedSourceTranscript,
+      reusedPresenterRender: result.reusedPresenterRender,
     });
   } catch (error) {
     if (error instanceof RetryJobError) return res.status(error.status).json({error: error.message});
@@ -755,11 +757,13 @@ app.post('/api/jobs/:id/retry', (req, res, next) => {
   if (!config.jobsEnabled) return res.status(503).json({error: '生成服务正在维护，请稍后再试'});
   try {
     const result = createRetryJob(db, jobsDir, req.params.id, randomUUID());
-    power.requestPowerForQueuedJob(result.job.id);
+    if (!result.reusedPresenterRender) power.requestPowerForQueuedJob(result.job.id);
     return res.status(202).json({
       job: publicJob(result.job),
       reusedCheckpoints: result.reusedCheckpoints,
       reusedCompletedArtifacts: result.reusedCompletedArtifacts,
+      reusedSourceTranscript: result.reusedSourceTranscript,
+      reusedPresenterRender: result.reusedPresenterRender,
     });
   } catch (error) {
     if (error instanceof RetryJobError) return res.status(error.status).json({error: error.message});

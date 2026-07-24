@@ -69,6 +69,8 @@ describe('buildCodexPrompt', () => {
     expect(prompt).toContain('prepare_presenter_track.py');
     expect(prompt).toContain('presenterTrackPath');
     expect(prompt).toContain('presenter/presenter-track.mp4');
+    expect(prompt).toContain('retry.reusedSourceTranscript=true');
+    expect(prompt).toContain('retry.reusedPresenterRender=true');
     expect(prompt).toContain('最终成片不得整段只展示全屏口播人物');
     expect(prompt).toContain('旁白时间戳工具');
     expect(prompt).toContain('必须严格按顺序执行：先完成最终口播文案');
