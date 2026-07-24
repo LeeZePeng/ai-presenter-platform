@@ -16,8 +16,6 @@
   <true/>
   <key>ThrottleInterval</key>
   <integer>5</integer>
-  <key>ProcessType</key>
-  <string>Background</string>
   <key>StandardOutPath</key>
   <string>/Users/yshtola/ai-presenter-platform/logs/ai-presenter.log</string>
   <key>StandardErrorPath</key>
