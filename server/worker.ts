@@ -47,6 +47,9 @@ export const isRetryableGpuCapacityError = (message: string): boolean =>
 export const calculateGpuRetryDelayMs = (attempt: number): number =>
   Math.min(5 * 60 * 1000, 30 * 1000 * 2 ** Math.max(0, Math.min(4, attempt - 1)));
 
+export const isRecoverableWorkerTimeout = (message: string): boolean =>
+  /^Codex worker 超过 \d+ 分钟超时$/.test(message.trim());
+
 export const ensureRemotionRuntimeLink = (workspace: string, runtimeDir: string): string => {
   const runtimeModules = path.join(runtimeDir, 'node_modules');
   if (!existsSync(runtimeModules)) throw new Error(`Remotion runtime 不完整: ${runtimeModules}`);
@@ -136,6 +139,12 @@ export class JobWorker {
 
   private async process(job: JobRecord): Promise<void> {
     const workspace = path.join(this.options.jobsDir, job.id);
+    const resumeExistingWorkspace =
+      job.metadata.resumeExistingWorkspace === true &&
+      existsSync(path.join(workspace, 'out', 'codex-thread-id.txt'));
+    const resumeProgress = resumeExistingWorkspace
+      ? Math.max(20, Number(job.metadata.resumeProgress) || job.progress)
+      : 0;
     const visualRepairOnly =
       job.metadata.visualRepairOnly === true &&
       existsSync(path.join(workspace, 'out', 'final.mp4')) &&
@@ -148,15 +157,21 @@ export class JobWorker {
       if (job.mode === 'clone') {
         if (!job.assets.sourceVideo) throw new Error('复刻任务缺少参考视频');
         const reusableTranscript =
-          visualRepairOnly &&
+          (visualRepairOnly || resumeExistingWorkspace) &&
           typeof job.metadata.sourceTranscriptPath === 'string' &&
           existsSync(job.metadata.sourceTranscriptPath)
             ? job.metadata.sourceTranscriptPath
             : undefined;
         if (reusableTranscript) {
           sourceTranscriptPath = reusableTranscript;
-          this.db.updateJob(job.id, {status: 'provisioning', stage: '复用原片转写', progress: 15});
-          this.db.addEvent(job.id, 'info', 'asr_reused', '视觉返修复用原片转写，不重复执行 ASR', {
+          this.db.updateJob(job.id, {
+            status: 'provisioning',
+            stage: resumeExistingWorkspace ? '恢复超时断点' : '复用原片转写',
+            progress: resumeExistingWorkspace ? resumeProgress : 15,
+          });
+          this.db.addEvent(job.id, 'info', 'asr_reused', resumeExistingWorkspace
+            ? '超时续跑复用原片转写和当前工作目录，不重复执行 ASR'
+            : '视觉返修复用原片转写，不重复执行 ASR', {
             sourceTranscriptPath,
           });
         } else {
@@ -182,8 +197,8 @@ export class JobWorker {
         }
         if (this.db.isCancelRequested(job.id)) throw new Error('任务已取消');
         this.db.updateJob(job.id, {
-          stage: visualRepairOnly ? '准备修复旧成片' : '唤醒算力',
-          progress: 16,
+          stage: visualRepairOnly ? '准备修复旧成片' : resumeExistingWorkspace ? '恢复超时断点' : '唤醒算力',
+          progress: resumeExistingWorkspace ? resumeProgress : 16,
         });
       }
       if (visualRepairOnly) {
@@ -196,14 +211,18 @@ export class JobWorker {
 
       this.db.updateJob(job.id, {
         status: 'running',
-        stage: visualRepairOnly ? '修复旧成片视觉' : '分析与生成',
-        progress: 20,
+        stage: visualRepairOnly ? '修复旧成片视觉' : resumeExistingWorkspace ? '从断点继续生成' : '分析与生成',
+        progress: resumeExistingWorkspace ? resumeProgress : 20,
       });
       this.db.addEvent(
         job.id,
         'info',
         'running',
-        visualRepairOnly ? '正在续接同一 Goal 修复 Remotion、字体和人物裁切' : 'GPU 已就绪，开始执行口播 skill',
+        visualRepairOnly
+          ? '正在续接同一 Goal 修复 Remotion、字体和人物裁切'
+          : resumeExistingWorkspace
+            ? 'GPU 已就绪，正在原任务目录和同一 Goal 中从断点继续'
+            : 'GPU 已就绪，开始执行口播 skill',
       );
       const current = this.db.getJob(job.id)!;
       const prompt = buildCodexPrompt(current, workspace, {
@@ -226,7 +245,11 @@ export class JobWorker {
 
       const output = await this.runner.run(current, workspace, prompt, {
         onEvent: (kind, message, data) => this.db.addEvent(job.id, 'info', kind, message, data),
-        onProgress: (stage, progress) => this.db.updateJob(job.id, {stage, progress}),
+        onProgress: (stage, progress) =>
+          this.db.updateJob(job.id, {
+            stage,
+            progress: resumeExistingWorkspace ? Math.max(resumeProgress, progress) : progress,
+          }),
         isCancelled: () => this.db.isCancelRequested(job.id),
       });
       if (this.db.isCancelRequested(job.id)) throw new Error('任务已取消');
@@ -243,6 +266,43 @@ export class JobWorker {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const cancelled = this.db.isCancelRequested(job.id) || message === '任务已取消';
+      const resumableTimeout =
+        !cancelled &&
+        isRecoverableWorkerTimeout(message) &&
+        existsSync(path.join(workspace, 'out', 'codex-thread-id.txt')) &&
+        existsSync(path.join(workspace, 'out', 'checkpoints'));
+      if (resumableTimeout) {
+        const current = this.db.getJob(job.id) ?? job;
+        const previousResumes = Number(current.metadata.workerTimeoutResumeCount ?? 0);
+        const resumeCount = Number.isFinite(previousResumes)
+          ? Math.max(0, Math.floor(previousResumes)) + 1
+          : 1;
+        if (resumeCount <= 2) {
+          this.nextClaimAt = Date.now() + 2000;
+          this.db.updateJob(job.id, {
+            status: 'pending',
+            stage: '总时限到达，准备从断点续跑',
+            progress: current.progress,
+            error: null,
+            startedAt: null,
+            finishedAt: null,
+            metadata: {
+              ...current.metadata,
+              resumeExistingWorkspace: true,
+              resumeProgress: current.progress,
+              workerTimeoutResumeCount: resumeCount,
+            },
+          });
+          this.db.addEvent(
+            job.id,
+            'warning',
+            'worker_timeout_resume',
+            `长视频达到单轮总时限，正在原目录从断点自动续跑（第 ${resumeCount} 次）`,
+            {resumeCount},
+          );
+          return;
+        }
+      }
       const completeOutputPackage =
         existsSync(path.join(workspace, 'out', 'final.mp4')) &&
         existsSync(path.join(workspace, 'out', 'result.json'));

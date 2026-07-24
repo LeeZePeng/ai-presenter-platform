@@ -144,7 +144,7 @@ export const config = {
     sandbox: env.CODEX_SANDBOX_MODE?.trim() || 'workspace-write',
     ephemeral: bool('CODEX_EPHEMERAL', false),
     timeoutMs: number('CODEX_TIMEOUT_MINUTES', 180) * 60 * 1000,
-    goalMaxMs: number('CODEX_GOAL_MAX_MINUTES', 360) * 60 * 1000,
+    goalMaxMs: number('CODEX_GOAL_MAX_MINUTES', 720) * 60 * 1000,
     skillPath: expandHome(env.AI_PRESENTER_SKILL_PATH?.trim() || '~/.codex/skills/ai-presenter-video-replica'),
   },
 } as const;

@@ -1275,7 +1275,7 @@ const validatePreflightReport = (
 export const calculateCodexTimeoutMs = (
   baseTimeoutMs: number,
   durationSeconds: number,
-  goalMaxMs = 360 * 60 * 1000,
+  goalMaxMs = 720 * 60 * 1000,
 ): number => {
   const segmentCount = Math.max(1, Math.ceil(durationSeconds / 18));
   const durationAwareTimeoutMs = (30 + segmentCount * 20) * 60 * 1000;

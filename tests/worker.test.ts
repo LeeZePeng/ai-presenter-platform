@@ -6,6 +6,7 @@ import {
   calculateGpuRetryDelayMs,
   ensureRemotionRuntimeLink,
   isRetryableGpuCapacityError,
+  isRecoverableWorkerTimeout,
   stageRemotionFonts,
 } from '../server/worker.js';
 
@@ -68,5 +69,13 @@ describe('GPU capacity retry policy', () => {
     expect(calculateGpuRetryDelayMs(2)).toBe(60_000);
     expect(calculateGpuRetryDelayMs(3)).toBe(120_000);
     expect(calculateGpuRetryDelayMs(99)).toBe(300_000);
+  });
+});
+
+describe('worker timeout recovery policy', () => {
+  it('recognizes only the platform total-timeout error', () => {
+    expect(isRecoverableWorkerTimeout('Codex worker 超过 360 分钟超时')).toBe(true);
+    expect(isRecoverableWorkerTimeout('InfiniteTalk 生成超时，未生成成片')).toBe(false);
+    expect(isRecoverableWorkerTimeout('任务已取消')).toBe(false);
   });
 });

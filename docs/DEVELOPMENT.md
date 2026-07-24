@@ -632,7 +632,7 @@ CompShare 返回 `Initializing` 时会映射为内部 `Starting`，不应误报 
 | `CODEX_SANDBOX_MODE` | 云端可用 `danger-full-access` |
 | `CODEX_EPHEMERAL` | `false` |
 | `CODEX_TIMEOUT_MINUTES` | `180` |
-| `CODEX_GOAL_MAX_MINUTES` | `360` |
+| `CODEX_GOAL_MAX_MINUTES` | `720` |
 | `AI_PRESENTER_SKILL_PATH` | 生产 ai-presenter-video-replica skill 绝对路径 |
 | `MODELVERSE_API_KEY` | `<secret>` |
 

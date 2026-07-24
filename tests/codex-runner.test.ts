@@ -107,7 +107,7 @@ describe('calculateCodexTimeoutMs', () => {
   it('allows enough time for sequential long-form presenter segments', () => {
     expect(calculateCodexTimeoutMs(90 * minute, 120)).toBe(170 * minute);
     expect(calculateCodexTimeoutMs(90 * minute, 180)).toBe(230 * minute);
-    expect(calculateCodexTimeoutMs(90 * minute, 900)).toBe(360 * minute);
+    expect(calculateCodexTimeoutMs(90 * minute, 900)).toBe(720 * minute);
     expect(calculateCodexTimeoutMs(90 * minute, 900, 240 * minute)).toBe(240 * minute);
   });
 });
