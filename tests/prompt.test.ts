@@ -66,6 +66,9 @@ describe('buildCodexPrompt', () => {
     expect(prompt).toContain('presenterSegmentPaths 和 infiniteTalkReceiptPaths');
     expect(prompt).toContain('normalize_presenter_segments.py');
     expect(prompt).toContain('presenterRenderPaths');
+    expect(prompt).toContain('prepare_presenter_track.py');
+    expect(prompt).toContain('presenterTrackPath');
+    expect(prompt).toContain('presenter/presenter-track.mp4');
     expect(prompt).toContain('最终成片不得整段只展示全屏口播人物');
     expect(prompt).toContain('旁白时间戳工具');
     expect(prompt).toContain('必须严格按顺序执行：先完成最终口播文案');
@@ -97,7 +100,11 @@ describe('buildCodexPrompt', () => {
     expect(prompt).toContain('Presenter Noto Sans SC');
     expect(prompt).toContain('out/analysis/preflight_report.json');
     expect(prompt).not.toContain('画面默认不生成文字、字幕或 UI');
-    expect(prompt).toContain('直接调用 /runtime/remotion/node_modules/.bin/remotion');
+    expect(prompt).toContain('render_remotion.py');
+    expect(prompt).toContain('--concurrency 16');
+    expect(prompt).toContain('--fallback-concurrency 12');
+    expect(prompt).toContain('完整 render 禁止直接调用 CLI');
+    expect(prompt).toContain('严禁为了颜色再跑一遍 Remotion');
     expect(prompt).toContain('Remotion 4.0.490');
     expect(prompt).toContain('严禁改用 FFmpeg drawtext/drawbox');
     expect(prompt).toContain('禁止为追逐 ffprobe 平均码率反复重编码');

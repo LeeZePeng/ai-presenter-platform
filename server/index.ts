@@ -102,6 +102,8 @@ const worker = new JobWorker(db, power, runner, transcriber, {
   remotionRuntimeDir: config.remotionRuntimeDir,
   remotionSkillPath: config.remotionSkillPath,
   remotionBrowserExecutable: config.remotionBrowserExecutable,
+  remotionConcurrency: config.remotionConcurrency,
+  remotionCrf: config.remotionCrf,
   pythonBin: config.pythonBin,
   cjkFontPaths: config.cjkFontPaths,
   asrBin: config.asr.bin,

@@ -72,6 +72,8 @@ export const config = {
   ),
   remotionBrowserExecutable:
     env.REMOTION_BROWSER_EXECUTABLE?.trim() || '/opt/google/chrome/google-chrome',
+  remotionConcurrency: Math.min(16, Math.max(1, Math.floor(number('REMOTION_CONCURRENCY', 16)))),
+  remotionCrf: Math.min(14, Math.max(10, Math.floor(number('REMOTION_CRF', 12)))),
   cjkFontPaths: {
     regular:
       env.CJK_FONT_REGULAR_PATH?.trim() ||
@@ -208,6 +210,8 @@ export const assertProductionConfiguration = (): void => {
       LONG_FORM_TTS_SCRIPT: path.join(config.codex.skillPath, 'scripts', 'long_form_tts.py'),
       NARRATION_TIMELINE_SCRIPT: path.join(config.codex.skillPath, 'scripts', 'transcribe_timeline.py'),
       VISUAL_PREFLIGHT_SCRIPT: path.join(config.codex.skillPath, 'scripts', 'validate_visual_preflight.py'),
+      PRESENTER_TRACK_SCRIPT: path.join(config.codex.skillPath, 'scripts', 'prepare_presenter_track.py'),
+      REMOTION_RENDER_SCRIPT: path.join(config.codex.skillPath, 'scripts', 'render_remotion.py'),
     }).filter(([, filename]) => path.isAbsolute(filename) && !existsSync(filename));
     if (missingFiles.length) {
       throw new Error(

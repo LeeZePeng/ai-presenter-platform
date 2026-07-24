@@ -438,6 +438,46 @@ describe('inspectArtifactProgress', () => {
     });
   });
 
+  it('reports durable Remotion frame progress and ETA from the Mac render wrapper', () => {
+    const workspace = mkdtempSync(path.join(os.tmpdir(), 'presenter-remotion-frame-progress-'));
+    const analysis = path.join(workspace, 'out', 'analysis');
+    mkdirSync(analysis, {recursive: true});
+    writeFileSync(
+      path.join(analysis, 'remotion_progress.json'),
+      JSON.stringify({
+        version: 1,
+        state: 'rendering',
+        percent: 42,
+        renderedFrames: 8949,
+        totalFrames: 21312,
+        etaSeconds: 620,
+        concurrency: 16,
+        attempt: 1,
+      }),
+    );
+
+    expect(inspectArtifactProgress(workspace)).toMatchObject({
+      key: 'remotion-render-42',
+      kind: 'remotion_render_progress',
+      stage: '渲染视觉成片 42%',
+      progress: 82,
+      data: {renderedFrames: 8949, totalFrames: 21312, concurrency: 16},
+    });
+  });
+
+  it('reports the single presenter track before Remotion preflight starts', () => {
+    const workspace = mkdtempSync(path.join(os.tmpdir(), 'presenter-track-progress-'));
+    const presenter = path.join(workspace, 'remotion', 'public', 'presenter');
+    mkdirSync(presenter, {recursive: true});
+    writeFileSync(path.join(presenter, 'presenter-track.mp4'), Buffer.alloc(2048));
+
+    expect(inspectArtifactProgress(workspace)).toMatchObject({
+      key: 'presenter-track-ready',
+      stage: '编排字幕与 UI',
+      progress: 78,
+    });
+  });
+
   it('recognizes presenter and Remotion filenames emitted by the skill', () => {
     const presenterWorkspace = mkdtempSync(path.join(os.tmpdir(), 'presenter-public-progress-'));
     const presenterPublic = path.join(presenterWorkspace, 'out', 'remotion', 'public');
@@ -504,14 +544,14 @@ describe('validateRemotionImplementation', () => {
        loadFont({family:'Presenter Noto Sans SC',url:'NotoSansCJKSC-Black.otf',weight:'900'});
        const frame = useCurrentFrame(); const x = interpolate(frame, [0, 10], [0, 1]);
        const style = {fontFamily:'Presenter Noto Sans SC, sans-serif', letterSpacing: 0};
-       <main data-cue-index={0} data-scene-key="workflow-diagram"><div data-caption-layer="narration-timeline">完整字幕</div><div data-presenter-layer="infinite-talk"><OffthreadVideo src={staticFile('presenter/render/segment-001.mp4')} /></div></main>`,
+       <main data-cue-index={0} data-scene-key="workflow-diagram"><div data-caption-layer="narration-timeline">完整字幕</div><div data-presenter-layer="infinite-talk"><OffthreadVideo src={staticFile('presenter/presenter-track.mp4')} /></div></main>`,
     );
     expect(() => validateRemotionImplementation(entry)).not.toThrow();
     writeFileSync(entry, `<Img src={staticFile('source-cues/cue-00.jpg')} />`);
     expect(() => validateRemotionImplementation(entry)).toThrow('静态全屏背景');
   });
 
-  it('accepts a segmented presenter directory referenced by a dynamic filename', () => {
+  it('rejects segmented presenter decoders and accepts one continuous presenter track', () => {
     const workspace = mkdtempSync(path.join(os.tmpdir(), 'presenter-remotion-segments-'));
     const entry = path.join(workspace, 'Replica.tsx');
     const fonts = path.join(workspace, 'public', 'fonts');
@@ -527,10 +567,20 @@ describe('validateRemotionImplementation', () => {
        loadFont({family:'Presenter Noto Sans SC',url:'NotoSansCJKSC-Black.otf',weight:'900'});
        const frame = useCurrentFrame(); const x = interpolate(frame, [0, 10], [0, 1]);
        const style = {fontFamily:'Presenter Noto Sans SC, sans-serif', letterSpacing: 0};
-       const file = 'segment-001.mp4';
-       <main data-cue-index={0} data-scene-key="terminal-review"><div data-caption-layer="narration-timeline">完整字幕</div><div data-presenter-layer="infinite-talk"><Video src={staticFile(\`presenter/render/\${file}\`)} /></div></main>`,
+       <main data-cue-index={0} data-scene-key="terminal-review"><div data-caption-layer="narration-timeline">完整字幕</div><div data-presenter-layer="infinite-talk"><Video src={staticFile('presenter/presenter-track.mp4')} /></div></main>`,
     );
     expect(() => validateRemotionImplementation(entry)).not.toThrow();
+    writeFileSync(
+      entry,
+      `import {loadFont} from '@remotion/fonts';
+       loadFont({family:'Presenter Noto Sans SC',url:'NotoSansCJKSC-Regular.otf',weight:'400'});
+       loadFont({family:'Presenter Noto Sans SC',url:'NotoSansCJKSC-Bold.otf',weight:'700'});
+       loadFont({family:'Presenter Noto Sans SC',url:'NotoSansCJKSC-Black.otf',weight:'900'});
+       const frame = useCurrentFrame(); const x = interpolate(frame, [0, 10], [0, 1]);
+       const style = {fontFamily:'Presenter Noto Sans SC, sans-serif', letterSpacing: 0};
+       <main data-cue-index={0} data-scene-key="bad"><div data-caption-layer="narration-timeline" /><div data-presenter-layer="infinite-talk"><Video src={staticFile('presenter/render/segment-001.mp4')} /></div></main>`,
+    );
+    expect(() => validateRemotionImplementation(entry)).toThrow('禁止逐段挂载');
   });
 });
 

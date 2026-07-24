@@ -25,6 +25,8 @@ type WorkerOptions = {
   remotionRuntimeDir: string;
   remotionSkillPath: string;
   remotionBrowserExecutable: string;
+  remotionConcurrency: number;
+  remotionCrf: number;
   pythonBin: string;
   cjkFontPaths: {
     regular: string;
@@ -233,6 +235,8 @@ export class JobWorker {
         remotionRuntimeDir: this.options.remotionRuntimeDir,
         remotionSkillPath: this.options.remotionSkillPath,
         remotionBrowserExecutable: this.options.remotionBrowserExecutable,
+        remotionConcurrency: this.options.remotionConcurrency,
+        remotionCrf: this.options.remotionCrf,
         pythonBin: this.options.pythonBin,
         remotionFontDir,
         asrBin: this.options.asrBin,

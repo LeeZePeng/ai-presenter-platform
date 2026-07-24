@@ -59,6 +59,7 @@ type ResultManifest = {
   infiniteTalkReceiptPath?: unknown;
   presenterSegmentPaths?: unknown;
   presenterRenderPaths?: unknown;
+  presenterTrackPath?: unknown;
   infiniteTalkReceiptPaths?: unknown;
   durationSeconds?: unknown;
   compositionRenderer?: unknown;
@@ -232,12 +233,15 @@ export const validateRemotionImplementation = (entryPath: string): void => {
       throw new Error(`Remotion 中文字体资产缺失或无效: ${filename}`);
     }
   }
+  if (/presenter[\\/]render[\\/]/i.test(source)) {
+    throw new Error('Remotion 禁止逐段挂载数字人视频；必须先合并为单一 presenter-track.mp4');
+  }
   if (
-    !/<(?:OffthreadVideo|Video)\b[\s\S]{0,800}presenter[\\/]render[\\/]|presenter[\\/]render[\\/][\s\S]{0,800}<(?:OffthreadVideo|Video)\b/i.test(
+    !/<(?:OffthreadVideo|Video)\b[\s\S]{0,800}presenter[\\/]presenter-track\.mp4|presenter[\\/]presenter-track\.mp4[\s\S]{0,800}<(?:OffthreadVideo|Video)\b/i.test(
       source,
     )
   ) {
-    throw new Error('InfiniteTalk 数字人必须在 Remotion 内等比裁切合成');
+    throw new Error('InfiniteTalk 数字人必须通过单一 presenter-track.mp4 在 Remotion 内等比裁切合成');
   }
 };
 
@@ -1105,6 +1109,43 @@ const probeDimensions = (mediaPath: string): {width: number; height: number} => 
   }
 };
 
+const probeVideoColor = (mediaPath: string): {
+  pixelFormat: string;
+  colorRange: string;
+  colorSpace: string;
+  colorTransfer: string;
+  colorPrimaries: string;
+} => {
+  const result = spawnSync(
+    'ffprobe',
+    [
+      '-v',
+      'error',
+      '-select_streams',
+      'v:0',
+      '-show_entries',
+      'stream=pix_fmt,color_range,color_space,color_transfer,color_primaries',
+      '-of',
+      'json',
+      mediaPath,
+    ],
+    {encoding: 'utf8', timeout: 20_000, maxBuffer: 1024 * 1024},
+  );
+  try {
+    const stream = JSON.parse(result.stdout).streams?.[0] as Record<string, unknown> | undefined;
+    if (result.status !== 0 || !stream) throw new Error('missing stream');
+    return {
+      pixelFormat: String(stream.pix_fmt ?? ''),
+      colorRange: String(stream.color_range ?? ''),
+      colorSpace: String(stream.color_space ?? ''),
+      colorTransfer: String(stream.color_transfer ?? ''),
+      colorPrimaries: String(stream.color_primaries ?? ''),
+    };
+  } catch {
+    throw new Error('无法读取视觉母版色彩参数');
+  }
+};
+
 export const isGrossLumaMismatch = (sourceMeanLuma: number, candidateMeanLuma: number): boolean =>
   (sourceMeanLuma >= 155 && candidateMeanLuma <= 100) ||
   (sourceMeanLuma <= 85 && candidateMeanLuma >= 145) ||
@@ -1413,6 +1454,76 @@ export const inspectArtifactProgress = (workspace: string): ArtifactProgress | n
     };
   }
 
+  const remotionProgressPath = path.join(out, 'analysis', 'remotion_progress.json');
+  if (existsSync(remotionProgressPath)) {
+    try {
+      const value = JSON.parse(readFileSync(remotionProgressPath, 'utf8')) as Record<string, unknown>;
+      const state = typeof value.state === 'string' ? value.state : '';
+      const percent = Math.min(100, Math.max(0, Math.floor(Number(value.percent) || 0)));
+      const renderedFrames = Math.max(0, Math.floor(Number(value.renderedFrames) || 0));
+      const encodedFrames = Math.max(0, Math.floor(Number(value.encodedFrames) || 0));
+      const totalFrames = Math.max(0, Math.floor(Number(value.totalFrames) || 0));
+      const etaSeconds = Number(value.etaSeconds);
+      const phasePercent = Math.min(100, Math.max(0, Math.floor(Number(value.phasePercent) || 0)));
+      const etaText = Number.isFinite(etaSeconds) && etaSeconds > 0
+        ? `，预计还需约 ${Math.max(1, Math.ceil(etaSeconds / 60))} 分钟`
+        : '';
+      const data = {
+        state,
+        percent,
+        renderedFrames,
+        encodedFrames,
+        totalFrames,
+        etaSeconds: Number.isFinite(etaSeconds) ? etaSeconds : null,
+        concurrency: Number(value.concurrency) || null,
+        attempt: Number(value.attempt) || null,
+        phasePercent,
+      };
+      if (state === 'rendering') {
+        return {
+          key: `remotion-render-${percent}`,
+          kind: 'remotion_render_progress',
+          message: `Remotion 正在渲染 ${renderedFrames}/${totalFrames || '?'} 帧（${percent}%）${etaText}`,
+          stage: `渲染视觉成片 ${percent}%`,
+          progress: 80 + Math.min(5, Math.floor(percent * 0.06)),
+          data,
+        };
+      }
+      if (state === 'encoding') {
+        return {
+          key: `remotion-encode-${percent}`,
+          kind: 'remotion_encode_progress',
+          message: `Remotion 正在编码 ${encodedFrames}/${totalFrames || '?'} 帧（${percent}%）${etaText}`,
+          stage: `编码视觉成片 ${percent}%`,
+          progress: 86,
+          data,
+        };
+      }
+      if (state === 'standardizing') {
+        return {
+          key: `remotion-standardizing-bt709-${phasePercent}`,
+          kind: 'remotion_standardizing',
+          message: `正在快速标准化 BT.709 色彩（${phasePercent}%），不会重新渲染画面${etaText}`,
+          stage: `标准化成片色彩 ${phasePercent}%`,
+          progress: 87,
+          data,
+        };
+      }
+      if (state === 'retrying') {
+        return {
+          key: `remotion-retrying-${Number(value.attempt) || 1}`,
+          kind: 'remotion_retrying',
+          message: 'Remotion 已自动降低并发，正在从可恢复步骤重试',
+          stage: '降低并发重试渲染',
+          progress: 80,
+          data,
+        };
+      }
+    } catch {
+      // The progress file is atomically replaced, but ignore any unexpected stale version.
+    }
+  }
+
   if (hasMediaArtifact([path.join(out, 'remotion_visual.mp4'), path.join(out, 'remotion-visual.mp4')])) {
     return {
       key: 'remotion-visual-ready',
@@ -1435,6 +1546,16 @@ export const inspectArtifactProgress = (workspace: string): ArtifactProgress | n
       message: 'Remotion 视觉预览已生成，正在渲染全片',
       stage: '渲染视觉成片',
       progress: 80,
+    };
+  }
+
+  if (hasMediaArtifact([path.join(workspace, 'remotion', 'public', 'presenter', 'presenter-track.mp4')])) {
+    return {
+      key: 'presenter-track-ready',
+      kind: 'presenter_track_ready',
+      message: '数字人口型已合并为单一解码轨道，开始编排字幕与 UI',
+      stage: '编排字幕与 UI',
+      progress: 78,
     };
   }
 
@@ -1961,6 +2082,16 @@ export class CodexRunner {
       throw new Error('Remotion 视觉成片不存在');
     }
     if (hasAudioStream(remotionVisual)) throw new Error('Remotion 视觉母版不应包含音轨');
+    const visualColor = probeVideoColor(remotionVisual);
+    if (
+      visualColor.pixelFormat !== 'yuv420p' ||
+      !['tv', 'mpeg'].includes(visualColor.colorRange) ||
+      visualColor.colorSpace !== 'bt709' ||
+      visualColor.colorTransfer !== 'bt709' ||
+      visualColor.colorPrimaries !== 'bt709'
+    ) {
+      throw new Error('Remotion 视觉母版必须是 H.264 yuv420p limited-range BT.709；请使用平台渲染包装器标准化');
+    }
     if (videoStreamSha256(remotionVisual) !== videoStreamSha256(expected)) {
       throw new Error('最终视频流被 Remotion 之外的后处理修改；人物、遮罩和 UI 必须全部在 Remotion 内完成');
     }
@@ -2424,6 +2555,23 @@ export class CodexRunner {
         );
       }
       if (hasAudioStream(renderPath)) throw new Error('Remotion 数字人规范化素材不应包含音轨');
+    }
+    const presenterTrack = resolveWorkspacePath(workspace, manifest.presenterTrackPath, 'presenterTrackPath');
+    if (!existsSync(presenterTrack) || statSync(presenterTrack).size <= 1024) {
+      throw new Error('缺少 Mac 优化后的单一数字人轨道 presenter-track.mp4');
+    }
+    const presenterTrackDimensions = probeDimensions(presenterTrack);
+    if (
+      presenterTrackDimensions.width !== presenterLayout.normalized.width ||
+      presenterTrackDimensions.height !== presenterLayout.normalized.height
+    ) {
+      throw new Error(
+        `单一数字人轨道必须为 ${presenterLayout.normalized.width}x${presenterLayout.normalized.height}`,
+      );
+    }
+    if (hasAudioStream(presenterTrack)) throw new Error('单一数字人轨道不应包含音轨');
+    if (Math.abs(probeDuration(presenterTrack) - actualDuration) > Math.max(1, actualDuration * 0.005)) {
+      throw new Error('单一数字人轨道与最终成片时长差异过大，可能发生口型漂移');
     }
     if (rawSegments.length || rawReceipts.length) {
       if (!rawSegments.length || rawSegments.length !== rawReceipts.length) {

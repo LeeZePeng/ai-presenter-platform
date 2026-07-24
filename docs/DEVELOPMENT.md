@@ -332,7 +332,9 @@ data/jobs/<job-id>/
 │   ├── src/
 │   └── public/
 │       ├── fonts/
-│       └── presenter/render/
+│       └── presenter/
+│           ├── render/                 # 可恢复的规范化/高清分段
+│           └── presenter-track.mp4     # Remotion 唯一持续解码的人物轨道
 └── out/
     ├── final.mp4
     ├── result.json
@@ -351,6 +353,8 @@ data/jobs/<job-id>/
     │   ├── narration_visual_map.json
     │   ├── scene_implementation.json
     │   ├── presenter_render_manifest.json
+    │   ├── presenter_track_manifest.json
+    │   ├── remotion_progress.json
     │   ├── visual_review.json
     │   └── *review*.png / *report*.json
     └── infinite_talk/
@@ -362,7 +366,7 @@ data/jobs/<job-id>/
 
 - `outputPath`、`durationSeconds`、`compositionRenderer`；
 - `narrationPath`、`narrationSha256`、`narrationScriptPath`；
-- `presenterSourcePath`、`presenterSegmentPaths`、`presenterRenderPaths`；
+- `presenterSourcePath`、`presenterSegmentPaths`、`presenterRenderPaths`、`presenterTrackPath`；
 - `infiniteTalkReceiptPath`、`infiniteTalkReceiptPaths`；
 - `sourceTranscriptPath`、`sourceAnalysisPath`；
 - `narrationTimelinePath`、`captionTimelinePath`、`narrationVisualMapPath`；
@@ -614,6 +618,8 @@ CompShare 返回 `Initializing` 时会映射为内部 `Starting`，不应误报 
 | `REMOTION_RUNTIME_DIR` | 独立 Remotion runtime 绝对路径 |
 | `REMOTION_SKILL_PATH` | remotion-best-practices skill 绝对路径 |
 | `REMOTION_BROWSER_EXECUTABLE` | 服务器实际 Chromium 路径 |
+| `REMOTION_CONCURRENCY` | Mac 单人物轨道完整渲染并发，默认 `16`；失败自动降到 12/8/6/4 |
+| `REMOTION_CRF` | 无声视觉母版 CRF，默认 `12` |
 | `CJK_FONT_REGULAR_PATH` | 本机中文常规字体绝对路径 |
 | `CJK_FONT_BOLD_PATH` | 本机中文粗体绝对路径 |
 | `CJK_FONT_BLACK_PATH` | 本机中文黑体绝对路径 |
@@ -1004,7 +1010,9 @@ test -x /Users/yshtola/ai-presenter-platform/bin/yt-dlp
 
 - InfiniteTalk 的 `frame_window_size` 影响生成吞吐和稳定性，不等同于最终输出分辨率；
 - 当前 48GB 基线优先 `81 / blocks_to_swap=0`，不要盲目加到超过模型稳定范围；
-- 数字人先以安全尺寸生成，再由 Remotion 高质量组合到最终画布；
+- 数字人先以安全尺寸生成并独立高清化，再用 `prepare_presenter_track.py` 合成一条静音轨；Remotion 只挂载一个人物 `Video`，禁止 39 段各开一个解码器；
+- 完整渲染统一走 `render_remotion.py`，Mac 默认并发 16，失败才按 12/8/6/4 降级；`remotion_progress.json` 提供帧数、百分比和 ETA；
+- Remotion 首次就请求 BT.709；若编码器仍产出 full-range/旧色彩标记，只做一次 `libx264 veryfast` 快速标准化，绝不重新跑全片 Remotion；
 - 放大低分辨率人物不会创造真实细节，必要时使用已有超清/增强能力，但要避免塑料感和人脸漂移；
 - 区分数字人口型生成慢和 Remotion 渲染慢，可从事件阶段、分段回执和 render 日志定位。
 

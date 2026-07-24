@@ -126,6 +126,8 @@ ASR_USE_GPU=true
 ASR_TIMEOUT_MINUTES=120
 REMOTION_RUNTIME_DIR=/var/lib/ai-presenter/runtime/remotion
 REMOTION_BROWSER_EXECUTABLE=/usr/lib64/chromium-browser/headless_shell
+REMOTION_CONCURRENCY=16
+REMOTION_CRF=12
 CJK_FONT_PATH=/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc
 
 CODEX_MODEL=gpt-5.6-sol

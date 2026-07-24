@@ -14,7 +14,7 @@
     "build": "vite build --config web/vite.config.ts",
     "start": "tsx server/index.ts",
     "typecheck": "tsc -p server/tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run tests"
   },
   "dependencies": {
     "@ffprobe-installer/ffprobe": "^2.1.2",
