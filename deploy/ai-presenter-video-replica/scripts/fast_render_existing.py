@@ -37,6 +37,23 @@ def write_progress(path: Path, state: str, percent: int, **extra: Any) -> None:
     )
 
 
+def configure_accelerated_ffmpeg(args: argparse.Namespace) -> None:
+    candidates = sorted(
+        args.runtime_dir.glob(
+            "node_modules/.pnpm/@remotion+compositor-darwin-arm64@*/node_modules/@remotion/compositor-darwin-arm64/ffmpeg"
+        )
+    )
+    if not candidates:
+        return
+    candidate = candidates[-1]
+    library_dir = candidate.parent
+    if not (library_dir / "libavcodec.dylib").exists():
+        return
+    args.ffmpeg_bin = candidate
+    current = os.environ.get("DYLD_LIBRARY_PATH", "")
+    os.environ["DYLD_LIBRARY_PATH"] = f"{library_dir}{os.pathsep}{current}" if current else str(library_dir)
+
+
 def terminate_child(_signal: int, _frame: object) -> None:
     if ACTIVE_PROCESS and ACTIVE_PROCESS.poll() is None:
         try:
@@ -114,19 +131,19 @@ def transcode_evidence_source(args: argparse.Namespace, source: Path) -> bool:
         "-hide_banner",
         "-loglevel",
         "warning",
+        "-c:v",
+        "libdav1d",
         "-i",
         str(source),
         "-map",
         "0:v:0",
         "-an",
         "-c:v",
-        "h264_videotoolbox",
-        "-b:v",
-        "5M",
-        "-maxrate",
-        "8M",
-        "-bufsize",
-        "12M",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "18",
         "-g",
         "30",
         "-pix_fmt",
@@ -148,7 +165,13 @@ def transcode_evidence_source(args: argparse.Namespace, source: Path) -> bool:
         "-nostats",
         str(temporary),
     ]
-    write_progress(args.progress, "optimizing", 0, sourceCodec=metadata["video"].get("codec_name"))
+    write_progress(
+        args.progress,
+        "optimizing",
+        0,
+        sourceCodec=metadata["video"].get("codec_name"),
+        decoder="libdav1d",
+    )
     try:
         ACTIVE_PROCESS = subprocess.Popen(
             command,
@@ -168,7 +191,13 @@ def transcode_evidence_source(args: argparse.Namespace, source: Path) -> bool:
             except ValueError:
                 continue
             percent = min(99, max(0, int((completed_seconds / duration) * 100)))
-            write_progress(args.progress, "optimizing", percent, sourceCodec=metadata["video"].get("codec_name"))
+            write_progress(
+                args.progress,
+                "optimizing",
+                percent,
+                sourceCodec=metadata["video"].get("codec_name"),
+                decoder="libdav1d",
+            )
         exit_code = ACTIVE_PROCESS.wait()
         ACTIVE_PROCESS = None
         if exit_code != 0:
@@ -379,6 +408,7 @@ def main() -> int:
     args = parser.parse_args()
     args.workspace = args.workspace.expanduser().resolve()
     args.progress = args.progress.expanduser().resolve()
+    configure_accelerated_ffmpeg(args)
     if not 1 <= args.concurrency <= 16:
         parser.error("--concurrency must be between 1 and 16")
     for candidate, label in [
