@@ -12,8 +12,10 @@ class ImmediateController implements InstanceController {
   starts = 0;
   stops = 0;
   nowSeconds = 0;
+  describeError: Error | null = null;
 
   async describe(): Promise<InstanceSnapshot> {
+    if (this.describeError) throw this.describeError;
     return {
       id: 'gpu-test',
       name: 'test',
@@ -40,6 +42,32 @@ const directories: string[] = [];
 afterEach(() => directories.splice(0).forEach((directory) => rmSync(directory, {recursive: true, force: true})));
 
 describe('PowerCoordinator', () => {
+  it('clears a transient instance status error after the next successful snapshot', async () => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'presenter-power-'));
+    directories.push(directory);
+    const db = new AppDatabase(path.join(directory, 'db.sqlite'));
+    const controller = new ImmediateController();
+    const power = new PowerCoordinator(db, controller, {
+      windowMs: 1000,
+      tickMs: 50,
+      startTimeoutMs: 1000,
+      healthUrl: '',
+      mockGpu: true,
+      mockCodex: true,
+      codexModel: 'test-model',
+    });
+
+    controller.describeError = new Error('fetch failed');
+    const failed = await power.systemSnapshot();
+    expect(failed.instance.state).toBe('Unknown');
+    expect(failed.lastPowerError).toBe('实例状态查询失败：fetch failed');
+
+    controller.describeError = null;
+    const recovered = await power.systemSnapshot();
+    expect(recovered.instance.state).toBe('Stopped');
+    expect(recovered.lastPowerError).toBeNull();
+  });
+
   it('starts on demand, extends while jobs exist, then stops at an idle boundary', async () => {
     const directory = mkdtempSync(path.join(os.tmpdir(), 'presenter-power-'));
     directories.push(directory);

@@ -55,6 +55,26 @@ export class PowerCoordinator {
     this.db.setRuntime('last_power_error', error instanceof Error ? error.message : String(error));
   }
 
+  private async describeInstance(): Promise<InstanceSnapshot> {
+    try {
+      return await this.controller.describe();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`实例状态查询失败：${message}`);
+    }
+  }
+
+  private clearRecoveredStatusError(): void {
+    const error = this.db.getRuntime('last_power_error');
+    if (
+      error === 'fetch failed' ||
+      error?.startsWith('实例状态查询失败：') ||
+      error?.includes('DescribeCompShareInstance')
+    ) {
+      this.db.setRuntime('last_power_error', null);
+    }
+  }
+
   private ensureWindow(anchorMs = this.now()): void {
     const currentNext = Number(this.db.getRuntime('next_power_check_at') ?? 0);
     if (currentNext > this.now()) return;
@@ -89,7 +109,7 @@ export class PowerCoordinator {
     await this.controller.stop();
     const stopDeadline = this.now() + Math.min(this.options.startTimeoutMs, 5 * 60 * 1000);
     while (this.now() < stopDeadline) {
-      const instance = await this.controller.describe();
+      const instance = await this.describeInstance();
       if (instance.state === 'Stopped') {
         await this.controller.start();
         this.resetWindow(this.now());
@@ -107,7 +127,7 @@ export class PowerCoordinator {
 
   ensureRunning(reason: string): Promise<InstanceSnapshot> {
     return this.withLock(async () => {
-      let instance = await this.controller.describe();
+      let instance = await this.describeInstance();
       if (instance.state === 'Stopped') {
         this.setAction(`${reason}，正在启动实例`);
         await this.controller.start();
@@ -131,7 +151,7 @@ export class PowerCoordinator {
 
       const deadline = this.now() + this.options.startTimeoutMs;
       while (this.now() < deadline) {
-        instance = await this.controller.describe();
+        instance = await this.describeInstance();
         if (instance.state === 'Running') {
           this.ensureWindow(instance.startTime ? instance.startTime * 1000 : this.now());
           await this.waitUntilHealthy();
@@ -164,7 +184,7 @@ export class PowerCoordinator {
       if (!nextAt || this.now() < nextAt) return;
 
       const activeJobs = this.db.countActiveJobs();
-      const instance = await this.controller.describe();
+      const instance = await this.describeInstance();
       if (activeJobs > 0) {
         let next = nextAt;
         while (next <= this.now()) next += this.options.windowMs;
@@ -189,7 +209,8 @@ export class PowerCoordinator {
   async systemSnapshot(): Promise<SystemSnapshot> {
     let instance: InstanceSnapshot;
     try {
-      instance = await this.controller.describe();
+      instance = await this.describeInstance();
+      this.clearRecoveredStatusError();
     } catch (error) {
       this.setError(error);
       instance = {
@@ -223,7 +244,7 @@ export class PowerCoordinator {
   manualStop(): Promise<void> {
     return this.withLock(async () => {
       if (this.db.countActiveJobs() > 0) throw new Error('仍有排队或运行任务，不能手动关机');
-      const instance = await this.controller.describe();
+      const instance = await this.describeInstance();
       if (instance.state === 'Running') await this.controller.stop();
       this.db.setRuntime('billing_window_started_at', null);
       this.db.setRuntime('next_power_check_at', null);
