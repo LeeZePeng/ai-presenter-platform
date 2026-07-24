@@ -3,11 +3,13 @@ import {
   existsSync,
   linkSync,
   mkdirSync,
+  readFileSync,
   realpathSync,
   rmSync,
   statSync,
   symlinkSync,
 } from 'node:fs';
+import {spawn, type ChildProcess} from 'node:child_process';
 import path from 'node:path';
 import type {AppDatabase} from './db.js';
 import type {PowerCoordinator} from './power-coordinator.js';
@@ -28,6 +30,8 @@ type WorkerOptions = {
   remotionConcurrency: number;
   remotionCrf: number;
   pythonBin: string;
+  ffmpegBin: string;
+  ffprobeBin: string;
   cjkFontPaths: {
     regular: string;
     bold: string;
@@ -99,6 +103,7 @@ export class JobWorker {
   private timer: NodeJS.Timeout | null = null;
   private busy = false;
   private nextClaimAt = 0;
+  private readonly fastRenderProcesses = new Map<string, ChildProcess>();
 
   constructor(
     private readonly db: AppDatabase,
@@ -124,7 +129,113 @@ export class JobWorker {
   cancel(jobId: string): JobRecord | null {
     const job = this.db.requestCancel(jobId);
     this.runner.cancel(jobId);
+    this.fastRenderProcesses.get(jobId)?.kill('SIGTERM');
     return job;
+  }
+
+  private readJson(filename: string): Record<string, unknown> | null {
+    try {
+      return JSON.parse(readFileSync(filename, 'utf8')) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+
+  private updateFastRenderProgress(jobId: string, workspace: string): void {
+    const fast = this.readJson(path.join(workspace, 'out', 'analysis', 'fast_render_progress.json'));
+    const remotion = this.readJson(path.join(workspace, 'out', 'analysis', 'remotion_progress.json'));
+    const state = String(fast?.state ?? 'starting');
+    if (state === 'optimizing') {
+      const percent = Math.max(0, Math.min(100, Number(fast?.percent) || 0));
+      this.db.updateJob(jobId, {stage: `优化 AV1 证据源 ${Math.floor(percent)}%`, progress: 80});
+      return;
+    }
+    if (state === 'rendering' || remotion?.state === 'rendering' || remotion?.state === 'encoding') {
+      const percent = Math.max(0, Math.min(100, Number(remotion?.percent) || 0));
+      const concurrency = Math.max(1, Number(remotion?.concurrency) || this.options.remotionConcurrency);
+      const etaSeconds = Math.max(0, Number(remotion?.etaSeconds) || 0);
+      this.db.updateJob(jobId, {
+        stage: `快速渲染 ${Math.floor(percent)}% · ${concurrency} 并发${etaSeconds ? ` · 约 ${Math.ceil(etaSeconds / 60)} 分钟` : ''}`,
+        progress: 82 + Math.floor(percent * 0.15),
+      });
+      return;
+    }
+    if (state === 'muxing') {
+      this.db.updateJob(jobId, {stage: '封装锁定旁白', progress: 98});
+      return;
+    }
+    if (state === 'cover') {
+      this.db.updateJob(jobId, {stage: '生成封面', progress: 99});
+      return;
+    }
+    if (state === 'validating') {
+      this.db.updateJob(jobId, {stage: '检查快速成片', progress: 99});
+    }
+  }
+
+  private async runFastRender(job: JobRecord, workspace: string): Promise<string> {
+    const script = path.join(this.options.skillPath, 'scripts', 'fast_render_existing.py');
+    const renderScript = path.join(this.options.skillPath, 'scripts', 'render_remotion.py');
+    if (!existsSync(script)) throw new Error(`快速渲染程序不存在: ${script}`);
+    const progressPath = path.join(workspace, 'out', 'analysis', 'fast_render_progress.json');
+    rmSync(progressPath, {force: true});
+    const args = [
+      script,
+      '--workspace',
+      workspace,
+      '--runtime-dir',
+      this.options.remotionRuntimeDir,
+      '--browser-executable',
+      this.options.remotionBrowserExecutable,
+      '--render-script',
+      renderScript,
+      '--python-bin',
+      this.options.pythonBin,
+      '--ffmpeg-bin',
+      this.options.ffmpegBin,
+      '--ffprobe-bin',
+      this.options.ffprobeBin,
+      '--progress',
+      progressPath,
+      '--concurrency',
+      String(this.options.remotionConcurrency),
+      '--crf',
+      String(this.options.remotionCrf),
+      '--title',
+      job.title,
+    ];
+    this.db.addEvent(job.id, 'info', 'fast_render_started', '复用已锁定工程，跳过 Agent、ASR、GPU、口型和逐帧预检，开始快速续跑', {
+      concurrency: this.options.remotionConcurrency,
+    });
+    let outputTail = '';
+    const child = spawn(this.options.pythonBin, args, {
+      cwd: workspace,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    this.fastRenderProcesses.set(job.id, child);
+    const collect = (chunk: unknown): void => {
+      outputTail = (outputTail + String(chunk)).slice(-12000);
+    };
+    child.stdout?.on('data', collect);
+    child.stderr?.on('data', collect);
+    const timer = setInterval(() => this.updateFastRenderProgress(job.id, workspace), 1500);
+    timer.unref();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        child.on('error', reject);
+        child.on('exit', (code, signal) => {
+          if (code === 0) resolve();
+          else reject(new Error(`快速渲染退出 (${signal ?? code}): ${outputTail.slice(-2500)}`));
+        });
+      });
+    } finally {
+      clearInterval(timer);
+      this.fastRenderProcesses.delete(job.id);
+      this.updateFastRenderProgress(job.id, workspace);
+    }
+    const output = path.join(workspace, 'out', 'final.mp4');
+    if (!existsSync(output) || statSync(output).size <= 1024) throw new Error('快速渲染没有生成有效成片');
+    return output;
   }
 
   private async tick(): Promise<void> {
@@ -141,6 +252,7 @@ export class JobWorker {
 
   private async process(job: JobRecord): Promise<void> {
     const workspace = path.join(this.options.jobsDir, job.id);
+    const fastRenderOnly = job.metadata.fastRenderOnly === true;
     const resumeExistingWorkspace =
       job.metadata.resumeExistingWorkspace === true &&
       existsSync(path.join(workspace, 'out', 'codex-thread-id.txt'));
@@ -159,6 +271,21 @@ export class JobWorker {
     ensureRemotionRuntimeLink(workspace, this.options.remotionRuntimeDir);
     const remotionFontDir = stageRemotionFonts(workspace, this.options.cjkFontPaths);
     try {
+      if (fastRenderOnly) {
+        this.db.updateJob(job.id, {status: 'running', stage: '准备快速续跑', progress: 79});
+        const output = await this.runFastRender(job, workspace);
+        if (this.db.isCancelRequested(job.id)) throw new Error('任务已取消');
+        this.db.updateJob(job.id, {
+          status: 'succeeded',
+          stage: '已完成',
+          progress: 100,
+          outputPath: output,
+          finishedAt: new Date().toISOString(),
+          metadata: {...job.metadata, workspace},
+        });
+        this.db.addEvent(job.id, 'info', 'fast_render_completed', '快速成片已生成：只执行一次固定工程渲染和旁白封装', {output});
+        return;
+      }
       let sourceTranscriptPath: string | undefined;
       if (job.mode === 'clone') {
         if (!job.assets.sourceVideo) throw new Error('复刻任务缺少参考视频');

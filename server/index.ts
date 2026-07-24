@@ -26,6 +26,8 @@ import type {JobAssets, PresenterAsset, PresenterAssetKind} from './types.js';
 assertProductionConfiguration();
 
 const ffprobePath = (createRequire(import.meta.url)('@ffprobe-installer/ffprobe') as {path: string}).path;
+const bundledFfmpegPath = createRequire(import.meta.url)('ffmpeg-static') as string;
+const fastRenderFfmpegPath = existsSync(config.asr.ffmpegBin) ? config.asr.ffmpegBin : bundledFfmpegPath;
 
 const incomingDir = path.join(config.dataDir, 'incoming');
 const jobsDir = path.join(config.dataDir, 'jobs');
@@ -105,6 +107,8 @@ const worker = new JobWorker(db, power, runner, transcriber, {
   remotionConcurrency: config.remotionConcurrency,
   remotionCrf: config.remotionCrf,
   pythonBin: config.pythonBin,
+  ffmpegBin: fastRenderFfmpegPath,
+  ffprobeBin: ffprobePath,
   cjkFontPaths: config.cjkFontPaths,
   asrBin: config.asr.bin,
   asrModel: config.asr.model,
@@ -495,6 +499,7 @@ app.post('/api/admin/jobs/:id/retry', (req, res, next) => {
       reusedCompletedArtifacts: result.reusedCompletedArtifacts,
       reusedSourceTranscript: result.reusedSourceTranscript,
       reusedPresenterRender: result.reusedPresenterRender,
+      fastRenderOnly: result.fastRenderOnly,
     });
   } catch (error) {
     if (error instanceof RetryJobError) return res.status(error.status).json({error: error.message});
@@ -764,6 +769,7 @@ app.post('/api/jobs/:id/retry', (req, res, next) => {
       reusedCompletedArtifacts: result.reusedCompletedArtifacts,
       reusedSourceTranscript: result.reusedSourceTranscript,
       reusedPresenterRender: result.reusedPresenterRender,
+      fastRenderOnly: result.fastRenderOnly,
     });
   } catch (error) {
     if (error instanceof RetryJobError) return res.status(error.status).json({error: error.message});

@@ -93,6 +93,30 @@ const hasReusablePresenterRender = (manifestPath: string): boolean => {
   }
 };
 
+const isFastRenderWorkspaceReady = (workspace: string): boolean => {
+  const requiredFiles = [
+    path.join(workspace, 'remotion', 'src', 'index.ts'),
+    path.join(workspace, 'remotion', 'src', 'Root.tsx'),
+    path.join(workspace, 'remotion', 'public', 'presenter', 'presenter-track.mp4'),
+    path.join(workspace, 'out', 'audio', 'final_narration.wav'),
+    path.join(workspace, 'out', 'analysis', 'presenter_render_manifest.json'),
+    path.join(workspace, 'out', 'analysis', 'preflight_report.json'),
+    path.join(workspace, 'out', 'analysis', 'scene_contract_report.json'),
+  ];
+  if (requiredFiles.some((filename) => !existsSync(filename) || statSync(filename).size <= 0)) return false;
+  try {
+    const preflight = JSON.parse(
+      readFileSync(path.join(workspace, 'out', 'analysis', 'preflight_report.json'), 'utf8'),
+    ) as {approved?: unknown};
+    const contract = JSON.parse(
+      readFileSync(path.join(workspace, 'out', 'analysis', 'scene_contract_report.json'), 'utf8'),
+    ) as {valid?: unknown};
+    return preflight.approved === true && contract.valid === true;
+  } catch {
+    return false;
+  }
+};
+
 export const createRetryJob = (
   db: AppDatabase,
   jobsDir: string,
@@ -104,6 +128,7 @@ export const createRetryJob = (
   reusedCompletedArtifacts: boolean;
   reusedSourceTranscript: boolean;
   reusedPresenterRender: boolean;
+  fastRenderOnly: boolean;
 } => {
   const source = db.getJob(sourceId);
   if (!source) throw new RetryJobError('任务不存在', 404);
@@ -116,6 +141,47 @@ export const createRetryJob = (
   if (activeRetry) throw new RetryJobError(`已有重试任务正在执行：${activeRetry.id}`, 409);
 
   const sourceWorkspace = path.join(jobsDir, source.id);
+  if (isFastRenderWorkspaceReady(sourceWorkspace)) {
+    const retryCount = Number(source.metadata.retryCount ?? 0) + 1;
+    const sourceTranscript = path.join(sourceWorkspace, 'out', 'analysis', 'source_transcript.json');
+    const reusedSourceTranscript = existsSync(sourceTranscript);
+    const job = db.updateJob(source.id, {
+      status: 'pending',
+      stage: '快速续跑排队',
+      progress: 79,
+      startedAt: null,
+      finishedAt: null,
+      outputPath: null,
+      error: null,
+      cancelRequested: false,
+      metadata: {
+        ...source.metadata,
+        retryCount,
+        reusedCheckpoints: true,
+        reusedCompletedArtifacts: false,
+        reusedSourceTranscript,
+        reusedPresenterRender: true,
+        fastRenderOnly: true,
+        resumeExistingWorkspace: false,
+        sourceTranscriptPath: reusedSourceTranscript ? sourceTranscript : undefined,
+        fastRenderLockedAt: new Date().toISOString(),
+      },
+    });
+    if (!job) throw new RetryJobError('快速续跑任务更新失败', 500);
+    db.addEvent(source.id, 'info', 'fast_render_retry', '复用已通过预检的固定工程，跳过 Agent 和全部昂贵生成步骤', {
+      retryCount,
+      reusedSourceTranscript,
+      reusedPresenterRender: true,
+    });
+    return {
+      job,
+      reusedCheckpoints: true,
+      reusedCompletedArtifacts: false,
+      reusedSourceTranscript,
+      reusedPresenterRender: true,
+      fastRenderOnly: true,
+    };
+  }
   const retryWorkspace = path.join(jobsDir, retryId);
   const sourceOut = path.join(sourceWorkspace, 'out');
   const retryOut = path.join(retryWorkspace, 'out');
@@ -198,7 +264,14 @@ export const createRetryJob = (
       reusedPresenterRender,
     });
     db.addEvent(source.id, 'info', 'retried', `已创建重试任务 ${retryId.slice(0, 12)}`, {retryJobId: retryId});
-    return {job, reusedCheckpoints, reusedCompletedArtifacts, reusedSourceTranscript, reusedPresenterRender};
+    return {
+      job,
+      reusedCheckpoints,
+      reusedCompletedArtifacts,
+      reusedSourceTranscript,
+      reusedPresenterRender,
+      fastRenderOnly: false,
+    };
   } catch (error) {
     rmSync(retryWorkspace, {recursive: true, force: true});
     throw error;

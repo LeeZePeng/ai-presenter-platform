@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {afterEach, describe, expect, it} from 'vitest';
@@ -39,6 +39,39 @@ afterEach(() => {
 });
 
 describe('createRetryJob', () => {
+  it('requeues an approved fixed Remotion workspace in place for fast rendering', () => {
+    const {db, jobsDir, sourceDir} = setup();
+    const files: Array<[string, string]> = [
+      ['remotion/src/index.ts', "import {registerRoot} from 'remotion';"],
+      ['remotion/src/Root.tsx', '<Composition id="FastReplica" />'],
+      ['remotion/public/presenter/presenter-track.mp4', 'presenter track'],
+      ['out/audio/final_narration.wav', 'locked narration'],
+      ['out/analysis/presenter_render_manifest.json', JSON.stringify({presenterRenderPaths: ['segment.mp4']})],
+      ['out/analysis/preflight_report.json', JSON.stringify({approved: true})],
+      ['out/analysis/scene_contract_report.json', JSON.stringify({valid: true})],
+      ['out/analysis/source_transcript.json', JSON.stringify({segments: []})],
+    ];
+    for (const [relative, value] of files) {
+      const filename = path.join(sourceDir, relative);
+      mkdirSync(path.dirname(filename), {recursive: true});
+      writeFileSync(filename, value);
+    }
+
+    const result = createRetryJob(db, jobsDir, 'source-job', 'unused-retry-id');
+
+    expect(result.job.id).toBe('source-job');
+    expect(result.job.status).toBe('pending');
+    expect(result.job.cancelRequested).toBe(false);
+    expect(result.fastRenderOnly).toBe(true);
+    expect(result.job.metadata).toMatchObject({
+      fastRenderOnly: true,
+      reusedPresenterRender: true,
+      reusedSourceTranscript: true,
+      retryCount: 1,
+    });
+    expect(existsSync(path.join(jobsDir, 'unused-retry-id'))).toBe(false);
+  });
+
   it('copies assets and reusable segmented checkpoints into a new queued job', () => {
     const {db, jobsDir, sourceDir} = setup();
     const checkpoint = path.join(sourceDir, 'out', 'checkpoints', 'segments', 'segment-001.mp4');
