@@ -167,6 +167,7 @@ describe('createFullRegenerationJob', () => {
 
     expect(result.job).toMatchObject({
       id: 'translated-repair',
+      title: '失败任务（300秒中文精简返修）',
       replicaMode: 'condensed',
       durationSeconds: 300,
       translateToChinese: true,

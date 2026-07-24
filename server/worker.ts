@@ -46,7 +46,7 @@ type WorkerOptions = {
 };
 
 export const isRetryableGpuCapacityError = (message: string): boolean =>
-  /(?:226604|out of resources|insufficient capacity|resource capacity|try again later|资源不足|暂无可用资源)/i.test(
+  /(?:226604|226619|out of resources|insufficient capacity|resource capacity|try again later|too many requests|资源不足|暂无可用资源|调用过于频繁|接口调用过于频繁|请稍后重试)/i.test(
     message,
   );
 

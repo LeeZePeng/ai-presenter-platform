@@ -61,6 +61,11 @@ describe('GPU capacity retry policy', () => {
         'CompShare StartCompShareInstance failed (226604): This GPU type is currently out of resources.',
       ),
     ).toBe(true);
+    expect(
+      isRetryableGpuCapacityError(
+        'CompShare StartCompShareInstance failed (226619): 接口调用过于频繁，请稍后重试。',
+      ),
+    ).toBe(true);
     expect(isRetryableGpuCapacityError('403 invalid private key')).toBe(false);
   });
 

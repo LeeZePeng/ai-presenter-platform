@@ -309,11 +309,15 @@ export const createFullRegenerationJob = (
       mkdirSync(path.dirname(retryTranscript), {recursive: true});
       copyFileSync(sourceTranscript, retryTranscript);
     }
+    const translated = overrides.translateToChinese ?? source.translateToChinese;
+    const repairLabel = replicaMode === 'condensed'
+      ? `${durationSeconds}秒${translated ? '中文' : ''}精简返修`
+      : `${translated ? '中文' : ''}完整返修`;
     const input: JobCreateInput = {
-      title: `${source.title}（完整返修）`,
+      title: `${source.title}（${repairLabel}）`,
       mode: source.mode,
       replicaMode,
-      translateToChinese: overrides.translateToChinese ?? source.translateToChinese,
+      translateToChinese: translated,
       topic: source.topic,
       script: source.script,
       durationSeconds,
