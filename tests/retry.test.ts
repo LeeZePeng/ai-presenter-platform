@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {afterEach, describe, expect, it} from 'vitest';
 import {AppDatabase} from '../server/db.js';
-import {createRetryJob, createVisualRepairJob, RetryJobError} from '../server/retry.js';
+import {createFullRegenerationJob, createRetryJob, createVisualRepairJob, RetryJobError} from '../server/retry.js';
 
 const directories: string[] = [];
 
@@ -16,10 +16,12 @@ const setup = () => {
   mkdirSync(path.join(sourceDir, 'assets'), {recursive: true});
   const avatar = path.join(sourceDir, 'assets', 'avatarImage.png');
   writeFileSync(avatar, 'avatar');
+  const sourceVideo = path.join(sourceDir, 'assets', 'sourceVideo.mp4');
+  writeFileSync(sourceVideo, 'source video');
   const db = new AppDatabase(path.join(directory, 'db.sqlite'));
   db.createJob('source-job', {
     title: '失败任务',
-    mode: 'topic',
+    mode: 'clone',
     replicaMode: 'condensed',
     topic: '测试重试',
     script: '',
@@ -28,7 +30,7 @@ const setup = () => {
     style: '自然专业',
     voiceMode: 'system_voice',
     rightsConfirmed: true,
-    assets: {avatarImage: avatar},
+    assets: {avatarImage: avatar, sourceVideo},
   });
   db.updateJob('source-job', {status: 'failed', stage: '执行失败', error: '服务断开'});
   return {db, jobsDir, sourceDir};
@@ -146,6 +148,37 @@ describe('createRetryJob', () => {
     const {db, jobsDir} = setup();
     createRetryJob(db, jobsDir, 'source-job', 'retry-job');
     expect(() => createRetryJob(db, jobsDir, 'source-job', 'retry-job-2')).toThrow(RetryJobError);
+  });
+});
+
+describe('createFullRegenerationJob', () => {
+  it('creates a five-minute translated condensed repair and reuses only the source transcript', () => {
+    const {db, jobsDir, sourceDir} = setup();
+    const transcript = path.join(sourceDir, 'out', 'analysis', 'source_transcript.json');
+    mkdirSync(path.dirname(transcript), {recursive: true});
+    writeFileSync(transcript, JSON.stringify({language: 'en', text: 'source transcript', segments: [{text: 'source'}]}));
+    db.updateJob('source-job', {status: 'succeeded', stage: '已完成'});
+
+    const result = createFullRegenerationJob(db, jobsDir, 'source-job', 'translated-repair', {
+      replicaMode: 'condensed',
+      durationSeconds: 300,
+      translateToChinese: true,
+    });
+
+    expect(result.job).toMatchObject({
+      id: 'translated-repair',
+      replicaMode: 'condensed',
+      durationSeconds: 300,
+      translateToChinese: true,
+    });
+    expect(result.reusedSourceTranscript).toBe(true);
+    expect(result.job.metadata).toMatchObject({
+      reusedCheckpoints: false,
+      reusedCompletedArtifacts: false,
+      reusedSourceTranscript: true,
+      sourceTranscriptPath: path.join(jobsDir, 'translated-repair', 'out', 'analysis', 'source_transcript.json'),
+    });
+    expect(existsSync(path.join(jobsDir, 'translated-repair', 'out', 'audio', 'final_narration.wav'))).toBe(false);
   });
 });
 

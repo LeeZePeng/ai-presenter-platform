@@ -181,6 +181,10 @@ a { text-decoration: none; }
 .trend-result > button:disabled { opacity: .48; }
 .youtube-rights { margin-top: 12px; padding-top: 11px; flex-direction: row; align-items: flex-start; border-top: 1px solid #29342f; color: #9aa69f; font-size: 10px; line-height: 1.5; }
 .youtube-rights input { width: 16px; height: 16px; flex: 0 0 auto; accent-color: var(--green); }
+.translation-option { padding: 11px 12px; border: 1px solid #31433b; border-radius: 5px; background: #121b17; }
+.translation-option span { display: flex; flex-direction: column; gap: 3px; }
+.translation-option strong { color: #dce9e3; font-size: 11px; }
+.translation-option small { color: #829089; font-size: 9px; line-height: 1.55; }
 .youtube-selected { position: relative; min-height: 178px; display: grid; grid-template-columns: 210px minmax(0, 1fr) auto; align-items: center; gap: 16px; }
 .youtube-selected > img { width: 210px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 5px; }
 .youtube-selected > span { min-width: 0; display: flex; flex-direction: column; }

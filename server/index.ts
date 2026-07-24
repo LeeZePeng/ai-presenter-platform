@@ -510,7 +510,19 @@ app.post('/api/admin/jobs/:id/retry', (req, res, next) => {
 app.post('/api/admin/jobs/:id/regenerate', (req, res, next) => {
   if (!config.jobsEnabled) return res.status(503).json({error: '生成服务正在维护，请稍后再试'});
   try {
-    const result = createFullRegenerationJob(db, jobsDir, req.params.id, randomUUID());
+    const replicaMode = req.body?.replicaMode;
+    if (replicaMode !== undefined && replicaMode !== 'exact' && replicaMode !== 'condensed') {
+      return res.status(400).json({error: 'replicaMode 必须是 exact 或 condensed'});
+    }
+    const durationSeconds = req.body?.durationSeconds === undefined ? undefined : Number(req.body.durationSeconds);
+    const translateToChinese = req.body?.translateToChinese === undefined
+      ? undefined
+      : req.body.translateToChinese === true || req.body.translateToChinese === 'true';
+    const result = createFullRegenerationJob(db, jobsDir, req.params.id, randomUUID(), {
+      replicaMode,
+      durationSeconds,
+      translateToChinese,
+    });
     power.requestPowerForQueuedJob(result.job.id);
     return res.status(202).json({...result, job: publicJob(result.job)});
   } catch (error) {

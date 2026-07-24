@@ -71,6 +71,15 @@ describe('parseJobInput', () => {
     );
     expect(exact.replicaMode).toBe('exact');
     expect(condensed.replicaMode).toBe('condensed');
+    expect(exact.translateToChinese).toBe(false);
+    expect(
+      parseJobInput(
+        {...base, mode: 'clone', translateToChinese: 'true'},
+        {sourceVideo: '/tmp/source.mp4'},
+      ).translateToChinese,
+    ).toBe(true);
+    expect(parseJobInput({...base, translateToChinese: 'true'}, {avatarImage: '/tmp/avatar.png'}).translateToChinese)
+      .toBe(false);
   });
 
   it('requires rights confirmation', () => {

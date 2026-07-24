@@ -32,6 +32,7 @@ export type JobCreateInput = {
   title: string;
   mode: JobMode;
   replicaMode: ReplicaMode;
+  translateToChinese?: boolean;
   topic: string;
   script: string;
   durationSeconds: number;
@@ -42,7 +43,8 @@ export type JobCreateInput = {
   assets: JobAssets;
 };
 
-export type JobRecord = JobCreateInput & {
+export type JobRecord = Omit<JobCreateInput, 'translateToChinese'> & {
+  translateToChinese: boolean;
   id: string;
   status: JobStatus;
   stage: string;

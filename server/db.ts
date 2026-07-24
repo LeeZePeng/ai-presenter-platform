@@ -8,6 +8,7 @@ type JobRow = {
   title: string;
   mode: JobRecord['mode'];
   replica_mode: JobRecord['replicaMode'];
+  translate_to_chinese: number;
   topic: string;
   script: string;
   duration_seconds: number;
@@ -71,6 +72,7 @@ export class AppDatabase {
         title TEXT NOT NULL,
         mode TEXT NOT NULL,
         replica_mode TEXT NOT NULL DEFAULT 'exact',
+        translate_to_chinese INTEGER NOT NULL DEFAULT 0,
         topic TEXT NOT NULL DEFAULT '',
         script TEXT NOT NULL DEFAULT '',
         duration_seconds INTEGER NOT NULL,
@@ -126,6 +128,9 @@ export class AppDatabase {
     const jobColumns = this.db.prepare('PRAGMA table_info(jobs)').all() as unknown as Array<{name: string}>;
     if (!jobColumns.some((column) => column.name === 'replica_mode')) {
       this.db.exec("ALTER TABLE jobs ADD COLUMN replica_mode TEXT NOT NULL DEFAULT 'condensed'");
+    }
+    if (!jobColumns.some((column) => column.name === 'translate_to_chinese')) {
+      this.db.exec('ALTER TABLE jobs ADD COLUMN translate_to_chinese INTEGER NOT NULL DEFAULT 0');
     }
   }
 
@@ -228,16 +233,17 @@ export class AppDatabase {
     this.db
       .prepare(`
         INSERT INTO jobs (
-          id, title, mode, replica_mode, topic, script, duration_seconds, aspect_ratio, style,
+          id, title, mode, replica_mode, translate_to_chinese, topic, script, duration_seconds, aspect_ratio, style,
           voice_mode, rights_confirmed, assets_json, status, stage, progress,
           created_at, updated_at, metadata_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '已进入队列', 2, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '已进入队列', 2, ?, ?, ?)
       `)
       .run(
         id,
         input.title,
         input.mode,
         input.replicaMode ?? (input.mode === 'clone' ? 'exact' : 'condensed'),
+        input.mode === 'clone' && input.translateToChinese ? 1 : 0,
         input.topic,
         input.script,
         input.durationSeconds,
@@ -260,6 +266,7 @@ export class AppDatabase {
       title: row.title,
       mode: row.mode,
       replicaMode: row.replica_mode,
+      translateToChinese: Boolean(row.translate_to_chinese),
       topic: row.topic,
       script: row.script,
       durationSeconds: row.duration_seconds,

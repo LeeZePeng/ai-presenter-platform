@@ -233,6 +233,7 @@ export const createRetryJob = (
       title: source.title,
       mode: source.mode,
       replicaMode: source.replicaMode,
+      translateToChinese: source.translateToChinese,
       topic: source.topic,
       script: source.script,
       durationSeconds: source.durationSeconds,
@@ -283,7 +284,8 @@ export const createFullRegenerationJob = (
   jobsDir: string,
   sourceId: string,
   retryId: string,
-): {job: JobRecord; reusedCheckpoints: false; reusedCompletedArtifacts: false} => {
+  overrides: {replicaMode?: JobRecord['replicaMode']; durationSeconds?: number; translateToChinese?: boolean} = {},
+): {job: JobRecord; reusedCheckpoints: false; reusedCompletedArtifacts: false; reusedSourceTranscript: boolean} => {
   const source = db.getJob(sourceId);
   if (!source) throw new RetryJobError('任务不存在', 404);
   if (!['succeeded', 'failed', 'cancelled'].includes(source.status)) {
@@ -295,13 +297,26 @@ export const createFullRegenerationJob = (
   const retryWorkspace = path.join(jobsDir, retryId);
   try {
     const assets = copyAssets(source, path.join(retryWorkspace, 'assets'));
+    const replicaMode = overrides.replicaMode ?? source.replicaMode;
+    const durationSeconds = overrides.durationSeconds ?? source.durationSeconds;
+    if (!Number.isInteger(durationSeconds) || durationSeconds < 5 || durationSeconds > 1800) {
+      throw new RetryJobError('完整返修目标时长必须为 5-1800 秒整数', 400);
+    }
+    const sourceTranscript = path.join(jobsDir, source.id, 'out', 'analysis', 'source_transcript.json');
+    const retryTranscript = path.join(retryWorkspace, 'out', 'analysis', 'source_transcript.json');
+    const reusedSourceTranscript = existsSync(sourceTranscript) && statSync(sourceTranscript).size > 64;
+    if (reusedSourceTranscript) {
+      mkdirSync(path.dirname(retryTranscript), {recursive: true});
+      copyFileSync(sourceTranscript, retryTranscript);
+    }
     const input: JobCreateInput = {
       title: `${source.title}（完整返修）`,
       mode: source.mode,
-      replicaMode: source.replicaMode,
+      replicaMode,
+      translateToChinese: overrides.translateToChinese ?? source.translateToChinese,
       topic: source.topic,
       script: source.script,
-      durationSeconds: source.durationSeconds,
+      durationSeconds,
       aspectRatio: source.aspectRatio,
       style: source.style,
       voiceMode: source.voiceMode,
@@ -317,17 +332,26 @@ export const createFullRegenerationJob = (
       reusedCheckpoints: false,
       reusedCompletedArtifacts: false,
       fullRegeneration: true,
+      reusedSourceTranscript,
+      sourceTranscriptPath: reusedSourceTranscript ? retryTranscript : undefined,
+      sourceTranscriptSha256: reusedSourceTranscript
+        ? createHash('sha256').update(readFileSync(retryTranscript)).digest('hex')
+        : undefined,
     });
     db.addEvent(retryId, 'info', 'full_regeneration_created', `由任务 ${source.id.slice(0, 12)} 创建完整返修`, {
       retryOf: source.id,
       retryCount,
       reusedAudio: false,
       reusedPresenter: false,
+      reusedSourceTranscript,
+      replicaMode,
+      durationSeconds,
+      translateToChinese: input.translateToChinese,
     });
     db.addEvent(source.id, 'info', 'full_regeneration_retried', `已创建完整返修任务 ${retryId.slice(0, 12)}`, {
       retryJobId: retryId,
     });
-    return {job, reusedCheckpoints: false, reusedCompletedArtifacts: false};
+    return {job, reusedCheckpoints: false, reusedCompletedArtifacts: false, reusedSourceTranscript};
   } catch (error) {
     rmSync(retryWorkspace, {recursive: true, force: true});
     throw error;
@@ -378,6 +402,7 @@ export const createVisualRepairJob = (
       title: `${source.title}（视觉返修）`,
       mode: source.mode,
       replicaMode: source.replicaMode,
+      translateToChinese: source.translateToChinese,
       topic: source.topic,
       script: source.script,
       durationSeconds: source.durationSeconds,

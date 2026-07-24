@@ -15,6 +15,7 @@ import {
   shouldContinueCodexGoal,
   shouldStopSettledGoalTurn,
   validateCaptionTimeline,
+  validateChineseNarration,
   validateMarketingCopy,
   validateNarrationClosing,
   validateNarrationTimeline,
@@ -26,6 +27,13 @@ import {
 } from '../server/codex-runner.js';
 
 describe('Codex Goal continuation', () => {
+  it('rejects an English script when Chinese translation was requested', () => {
+    expect(() => validateChineseNarration('This is still an English narration with no translated content.')).toThrow(
+      '最终口播不是中文主体',
+    );
+    expect(() => validateChineseNarration(`${'这是一段忠实翻译后的自然中文口播。'.repeat(12)}Kimi K3 GPT`)).not.toThrow();
+  });
+
   it('captures the persisted thread id from Codex JSONL events', () => {
     const threadId = '019f6f04-36b6-7492-b2d4-7014e31da75e';
     expect(extractCodexThreadId({type: 'thread.started', thread_id: threadId})).toBe(threadId);

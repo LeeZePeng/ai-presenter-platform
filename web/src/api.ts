@@ -33,6 +33,7 @@ export type Job = {
   title: string;
   mode: JobMode;
   replicaMode: ReplicaMode;
+  translateToChinese: boolean;
   topic: string;
   script: string;
   durationSeconds: number;

@@ -463,6 +463,7 @@ export const App = () => {
 
   const [mode, setMode] = useState<JobMode>('clone');
   const [replicaMode, setReplicaMode] = useState<ReplicaMode>('exact');
+  const [translateToChinese, setTranslateToChinese] = useState(true);
   const [title, setTitle] = useState('');
   const [topic, setTopic] = useState('');
   const [script, setScript] = useState('');
@@ -859,6 +860,7 @@ export const App = () => {
       form.set('title', title || fallbackTitle || 'AI 口播任务');
       form.set('mode', mode);
       form.set('replicaMode', replicaMode);
+      form.set('translateToChinese', String(mode === 'clone' && translateToChinese));
       form.set('topic', topic);
       form.set('script', script);
       form.set('durationSeconds', String(duration));
@@ -1115,6 +1117,10 @@ export const App = () => {
                               <button type="button" aria-pressed={replicaMode === 'condensed'} className={replicaMode === 'condensed' ? 'active' : ''} onClick={() => { setReplicaMode('condensed'); setDuration(sourceDuration ? condensedTargetForSource(sourceDuration) : 60); setStepError(''); }}>精简复刻</button>
                             </div>
                           </div>
+                          <label className="youtube-rights translation-option">
+                            <input type="checkbox" checked={translateToChinese} onChange={(event) => setTranslateToChinese(event.target.checked)} />
+                            <span><strong>翻译成中文口播</strong><small>勾选后把原片内容翻成自然中文，并重新生成中文配音、字幕和数字人口型；不勾选则保留原语言</small></span>
+                          </label>
                           {sourceDuration && (
                             <div className={`duration-feasibility ${condensedDurationInvalid ? 'invalid' : ''}`}>
                               <div className="feasibility-heading">
@@ -1339,7 +1345,7 @@ export const App = () => {
                 <p id="dispatch-confirm-description">确认后任务会立即进入队列，并可能启动 GPU 实例。</p>
               </div>
               <dl className="dispatch-confirm-facts">
-                <div><dt>制作方式</dt><dd>{mode === 'clone' ? replicaMode === 'exact' ? '完整复刻' : '精简复刻' : modeConfig.find((item) => item.id === mode)?.label}</dd></div>
+                <div><dt>制作方式</dt><dd>{mode === 'clone' ? `${replicaMode === 'exact' ? '完整复刻' : '精简复刻'} · ${translateToChinese ? '翻译中文' : '保留原语言'}` : modeConfig.find((item) => item.id === mode)?.label}</dd></div>
                 <div><dt>输出规格</dt><dd>{durationSummary} · {ratio}</dd></div>
                 <div><dt>人物</dt><dd>{assetSummary || '未上传'}</dd></div>
                 <div><dt>声音</dt><dd>{voiceSummary}</dd></div>

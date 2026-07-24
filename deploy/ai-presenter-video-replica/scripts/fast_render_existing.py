@@ -311,7 +311,6 @@ def mux_final(args: argparse.Namespace) -> Path:
         "aac",
         "-b:a",
         "192k",
-        "-shortest",
         "-movflags",
         "+faststart",
         str(temporary),

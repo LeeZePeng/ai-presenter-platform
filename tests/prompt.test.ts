@@ -7,6 +7,7 @@ const job: JobRecord = {
   title: '真实口型测试',
   mode: 'script',
   replicaMode: 'condensed',
+  translateToChinese: false,
   topic: '',
   script: '大家好，这是一段测试。',
   durationSeconds: 5,
@@ -159,6 +160,28 @@ describe('buildCodexPrompt', () => {
     expect(clonePrompt).toContain('不得给普通口播或静态 PPT 滥用原视频 PIP');
     expect(clonePrompt).toContain('网感是独立的全片节奏要求');
     expect(clonePrompt).toContain('约每 3-6 秒安排一次有语义的视觉推进');
+    expect(clonePrompt).toContain('用户未勾选翻译');
+
+    const translatedClonePrompt = buildCodexPrompt(
+      {...job, mode: 'clone', replicaMode: 'exact', translateToChinese: true, script: '', assets: {sourceVideo: '/jobs/job-1/assets/source.mp4'}},
+      '/jobs/job-1',
+      {
+        skillPath: '/skills/ai-presenter-video-replica',
+        presenterApiUrl: 'http://presenter:7860',
+        presenterComfyUrl: 'http://presenter:8188',
+        remotionRuntimeDir: '/runtime/remotion',
+        remotionSkillPath: '/skills/remotion-best-practices',
+        remotionBrowserExecutable: '/runtime/headless-shell',
+        remotionFontDir: '/jobs/job-1/remotion/public/fonts',
+        asrBin: '/runtime/whisper-cli',
+        asrModel: '/runtime/ggml-small.bin',
+        asrLanguage: 'zh',
+        asrThreads: 8,
+        sourceTranscriptPath: '/jobs/job-1/out/analysis/source_transcript.json',
+      },
+    );
+    expect(translatedClonePrompt).toContain('翻译成自然、流畅的中文口播');
+    expect(translatedClonePrompt).toContain('重新生成全部受影响的 InfiniteTalk 口型分段');
 
     const condensedPrompt = buildCodexPrompt(
       {...job, mode: 'clone', replicaMode: 'condensed', script: '', topic: '', assets: {sourceVideo: '/jobs/job-1/assets/source.mp4'}},

@@ -441,6 +441,18 @@ export const validateMarketingCopy = (title: string, description: string): void 
   }
 };
 
+export const validateChineseNarration = (text: string): void => {
+  const hanCharacters = text.match(/\p{Script=Han}/gu)?.length ?? 0;
+  const latinCharacters = text.match(/[A-Za-z]/g)?.length ?? 0;
+  const languageCharacters = hanCharacters + latinCharacters;
+  const chineseRatio = languageCharacters > 0 ? hanCharacters / languageCharacters : 0;
+  if (hanCharacters < 80 || chineseRatio < 0.55) {
+    throw new Error(
+      `已选择翻译成中文，但最终口播不是中文主体 (汉字=${hanCharacters}, 中文占比=${chineseRatio.toFixed(3)})`,
+    );
+  }
+};
+
 type NarrationTimeline = {
   durationSeconds: number;
   text: string;
@@ -2252,6 +2264,7 @@ export class CodexRunner {
       throw new Error('旁白时间轴不是有效 JSON');
     }
     const scriptText = readFileSync(narrationScript, 'utf8');
+    if (job.mode === 'clone' && job.translateToChinese) validateChineseNarration(scriptText);
     if (job.voiceMode !== 'uploaded_audio') {
       validateNarrationClosing(scriptText);
       validatePronunciationArtifacts(workspace, manifest, scriptText);
@@ -2325,10 +2338,10 @@ export class CodexRunner {
         throw new Error('口播文案错误地描述了视频制作流程，而不是复刻原片内容');
       }
       const overlap = contentOverlapRatio(scriptText, transcriptText);
-      if (!Number.isFinite(overlap) || overlap < 0.12) {
+      if (!job.translateToChinese && (!Number.isFinite(overlap) || overlap < 0.12)) {
         throw new Error(`口播文案与原片转写内容关联不足 (${overlap.toFixed(3)})`);
       }
-      if (job.replicaMode === 'exact') {
+      if (job.replicaMode === 'exact' && !job.translateToChinese) {
         const sourceCoverage = contentOverlapRatio(transcriptText, scriptText);
         const scriptLength = scriptText.replace(/\s+/g, '').length;
         const transcriptLength = transcriptText.replace(/\s+/g, '').length;

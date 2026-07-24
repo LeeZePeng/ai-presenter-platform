@@ -79,6 +79,7 @@ export const buildCodexPrompt = (
     jobId: job.id,
     mode: job.mode,
     replicaMode: job.replicaMode,
+    translateToChinese: job.translateToChinese,
     title: job.title,
     topic: job.topic,
     script: job.script,
@@ -111,6 +112,12 @@ export const buildCodexPrompt = (
         : `执行精简复刻，以 ${job.durationSeconds} 秒为硬上限提炼原片。优先保留核心主题、关键论点和最终结论；允许主动删除次要观点、非必要步骤、案例、展开论据、对比细节、支线和重复内容，不要求覆盖原片全部观点，也不得因无法完整覆盖而失败。保留的内容必须来自原片转写、不得杜撰，并按它们在原片中出现的顺序组织。即使目标极短，也必须保留语义完整的开场钩子和语义完整的结束语，不得从半句开始或在半句截断；开场要快速给出冲突、收益或好奇点，结尾要完成结论、行动建议或下一步，有短视频网感但不做虚假夸张。每句最终旁白仍须绑定原片对应时间戳、PPT 状态和视觉证据，按原片配色、字体层级、版式、图形和动效触发复刻已保留内容，禁止改成通用模板。`,
   }[job.mode];
 
+  const translationInstruction = job.mode === 'clone'
+    ? job.translateToChinese
+      ? '用户已勾选“翻译成中文口播”：原片不是中文时，必须在不改变事实、观点、论证顺序和产品名称的前提下，翻译成自然、流畅的中文口播；final_script、caption timeline、画面标题、封面和发布文案以中文为主。只保留必要的产品名、模型名和代码为英文，严禁直接照搬大段英文原文。中文配音变化会改变音频哈希，因此必须重新生成全部受影响的 InfiniteTalk 口型分段，禁止复用外语配音或外语口型。'
+      : '用户未勾选翻译：保留原片的主要口播语言，不主动翻译；字幕与配音使用同一种原片语言。'
+    : '';
+
   const cloneGrounding = job.mode === 'clone'
     ? `job.topic 是制作要求，不是口播文案；严禁把“复刻、嵌入录屏、裁字幕、加 UI、数字人位置”等制作过程写进旁白。worker 已经用云端 ASR 生成可靠原片转写：${options.sourceTranscriptPath ?? '缺失'}。必须逐段读取其中的 text、segments 和时间戳；job.script 非空时严格使用它，否则旁白只能来自该转写的真实内容，禁止凭画面猜测或编造元叙事。结果清单中的 sourceTranscriptPath 必须原样指向 worker 生成的这份转写。转写缺失或内容不足时立即失败。`
     : '';
@@ -141,7 +148,7 @@ ${pronunciationManifestGate}
 片尾硬门禁：生成最终口播文案后、任何 TTS 或 InfiniteTalk 请求前，必须运行 python3.11 ${narrationScriptValidator} --input out/audio/final_script.txt。最后一段必须回收结论，并给出主题内的真实行动、下一步或自然告别，禁止停在最后一个知识点上。除非用户明确逐字提供并坚持，否则禁止用点赞、关注、收藏、转发、评论区、留言、私信、关键词回复或一键三连制造互动；校验失败必须改稿。生成完成后再次运行同一校验，禁止后续改写破坏片尾。
 ${job.metadata.narrationRepairOnly === true ? '本次是片尾口播返修，覆盖第 7 条的一般复用限制：保留现有 final_script 和 final_narration 的全部前缀内容与顺序，只补写自然、不索取互动的片尾；使用已有 modelverse_voice.json 生成缺失尾音，重新锁定完整旁白、时间轴、字幕、视觉 cue 和 Remotion 时长。继续使用已有 InfiniteTalk checkpoint 目录，但只复用音频 SHA-256 与新分段完全相同的旧段；尾部音频变化的分段必须重新请求真实口型。禁止复用旧 final.mp4、旧 result.json 或过期审查材料冒充完成。' : ''}
 0. 第一项操作必须调用 create_goal，把“生成并通过本提示全部验收的 final.mp4、result.json、封面和审查材料”设为当前目标；严禁设置 token budget。质量优先于 token 用量、实现篇幅、生成速度和轮次数量，不得为了节省 token 折叠分析、删减场景实现、复用通用模板、用摘要字幕代替完整字幕或提前结束。任何单个脚本、模型调用或渲染完成都不代表目标完成。只有第 13-14 条全部通过后才能调用 update_goal(status=complete)。若遇到可修复的校验错误，必须在同一目标和同一上下文中继续修复；最长执行时间由 worker 硬限制，达到时限时保留全部检查点，不得绕过时限。
-1. ${modeInstruction} ${cloneGrounding} 用户选择的画面风格是“${job.style}”。${presenterPrimaryStyle ? `这是明确的构图层级覆盖：avatarImage（${job.assets.avatarImage ?? '缺失，必须失败'}）是唯一人物身份来源；保留来源配色、字体、内容证据和 cue 顺序，但由该形象生成的真实口型人物作为主画面、信息组件悬浮其周围，不得从参考视频取人物，也不得退回角落圆形 PIP。` : ''}
+1. ${modeInstruction} ${translationInstruction} ${cloneGrounding} 用户选择的画面风格是“${job.style}”。${presenterPrimaryStyle ? `这是明确的构图层级覆盖：avatarImage（${job.assets.avatarImage ?? '缺失，必须失败'}）是唯一人物身份来源；保留来源配色、字体、内容证据和 cue 顺序，但由该形象生成的真实口型人物作为主画面、信息组件悬浮其周围，不得从参考视频取人物，也不得退回角落圆形 PIP。` : ''}
 2. 只在工作目录内写入项目文件和产物，不修改用户上传的原文件。
 3. 本任务必须生成真实对口型数字人。必须调用且只能通过下面的 InfiniteTalk 脚本生成说话人物：
    ${infiniteTalkScript}

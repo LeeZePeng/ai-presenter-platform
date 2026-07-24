@@ -11,6 +11,10 @@ const formSchema = z.object({
   title: z.string().trim().min(2, '请填写任务名称').max(80),
   mode: z.enum(['topic', 'script', 'clone']),
   replicaMode: z.enum(['exact', 'condensed']).default('exact'),
+  translateToChinese: z
+    .union([z.literal('true'), z.literal('false'), z.literal('1'), z.literal('0'), z.literal('on'), z.boolean()])
+    .default(false)
+    .transform((value) => value === true || value === 'true' || value === '1' || value === 'on'),
   topic: z.string().trim().max(2000).default(''),
   script: z.string().trim().max(10000).default(''),
   durationSeconds: z.coerce.number().int().min(1).max(1800).default(120),
@@ -48,5 +52,11 @@ export const parseJobInput = (body: Record<string, unknown>, assets: JobAssets):
   if (voiceMode === 'uploaded_audio' && !assets.voiceReference) {
     throw new Error('直接使用口播音频需要上传 MP3、WAV 或 M4A 文件');
   }
-  return {...parsed, voiceMode, replicaMode: parsed.mode === 'clone' ? parsed.replicaMode : 'condensed', assets};
+  return {
+    ...parsed,
+    voiceMode,
+    replicaMode: parsed.mode === 'clone' ? parsed.replicaMode : 'condensed',
+    translateToChinese: parsed.mode === 'clone' && parsed.translateToChinese,
+    assets,
+  };
 };
