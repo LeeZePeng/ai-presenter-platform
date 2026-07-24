@@ -75,6 +75,15 @@ def is_bt709_limited(metadata: dict[str, Any]) -> bool:
     )
 
 
+def has_bt709_limited_picture(metadata: dict[str, Any]) -> bool:
+    return (
+        metadata.get("codec") == "h264"
+        and metadata.get("pixelFormat") == "yuv420p"
+        and metadata.get("colorRange") in {"tv", "mpeg"}
+        and metadata.get("colorSpace") == "bt709"
+    )
+
+
 def try_probe(path: Path, ffprobe_bin: str) -> dict[str, Any] | None:
     if not path.is_file() or path.stat().st_size <= 1024:
         return None
@@ -151,6 +160,8 @@ def run_remotion(args: argparse.Namespace, concurrency: int, raw_output: Path) -
         "--overwrite",
     ]
     started = time.monotonic()
+    active_phase = "rendered"
+    phase_started = started
     current = progress_state(args, "rendering")
     last_write = 0.0
     last_line = ""
@@ -185,8 +196,16 @@ def run_remotion(args: argparse.Namespace, concurrency: int, raw_output: Path) -
         phase = match.group(1).lower()
         completed = int(match.group(2))
         total = max(1, int(match.group(3)))
-        elapsed = max(0.001, time.monotonic() - started)
-        eta = int((elapsed / max(1, completed)) * max(0, total - completed)) if completed else None
+        now = time.monotonic()
+        if phase != active_phase:
+            active_phase = phase
+            phase_started = now
+        phase_elapsed = max(0.001, now - phase_started)
+        eta = (
+            int((phase_elapsed / completed) * max(0, total - completed))
+            if completed >= 30 and phase_elapsed >= 2
+            else None
+        )
         if phase == "rendered":
             percent = min(92, int((completed / total) * 92))
             current.update(
@@ -205,7 +224,6 @@ def run_remotion(args: argparse.Namespace, concurrency: int, raw_output: Path) -
                 totalFrames=total,
                 etaSeconds=eta,
             )
-        now = time.monotonic()
         if now - last_write >= 0.75 or completed >= total:
             current["updatedAt"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             current["concurrency"] = concurrency
@@ -254,6 +272,8 @@ def standardize_bt709(args: argparse.Namespace, source: Path, output: Path, meta
         "bt709",
         "-color_trc",
         "bt709",
+        "-bsf:v",
+        "h264_metadata=video_full_range_flag=0:colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1",
         "-movflags",
         "+faststart",
         "-progress",
@@ -312,6 +332,51 @@ def standardize_bt709(args: argparse.Namespace, source: Path, output: Path, meta
             temporary.unlink()
 
 
+def tag_bt709_metadata(args: argparse.Namespace, source: Path, output: Path) -> dict[str, Any]:
+    global ACTIVE_PROCESS
+    temporary = output.with_name(f".{output.stem}.{os.getpid()}.bt709-metadata.mp4")
+    command = [
+        args.ffmpeg_bin,
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "warning",
+        "-i",
+        str(source),
+        "-map",
+        "0:v:0",
+        "-an",
+        "-c:v",
+        "copy",
+        "-bsf:v",
+        "h264_metadata=video_full_range_flag=0:colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1",
+        "-movflags",
+        "+faststart",
+        str(temporary),
+    ]
+    progress_state(args, "standardizing", percent=99, phasePercent=100, etaSeconds=None)
+    try:
+        ACTIVE_PROCESS = subprocess.Popen(command, start_new_session=True)
+        try:
+            exit_code = ACTIVE_PROCESS.wait(timeout=180)
+        except subprocess.TimeoutExpired as error:
+            os.killpg(ACTIVE_PROCESS.pid, signal.SIGTERM)
+            ACTIVE_PROCESS.wait(timeout=15)
+            raise TimeoutError("BT.709 metadata tagging timed out") from error
+        ACTIVE_PROCESS = None
+        if exit_code != 0:
+            raise RuntimeError(f"FFmpeg BT.709 metadata tagging exited with code {exit_code}")
+        tagged = probe(temporary, args.ffprobe_bin)
+        if not is_bt709_limited(tagged):
+            raise RuntimeError(f"BT.709 metadata tagging validation failed: {tagged}")
+        temporary.replace(output)
+        return tagged
+    finally:
+        ACTIVE_PROCESS = None
+        if temporary.exists():
+            temporary.unlink()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run one resumable, Mac-safe Remotion render with durable frame progress")
     parser.add_argument("--runtime-dir", required=True, type=Path)
@@ -355,6 +420,18 @@ def main() -> int:
 
     raw_output = args.output.with_name(f".{args.output.stem}.remotion-raw.mp4")
     raw_metadata = try_probe(raw_output, args.ffprobe_bin)
+    if not raw_metadata and not existing:
+        preserved_outputs = sorted(
+            args.output.parent.glob(f"{args.output.stem}.pre-bt709*.mp4"),
+            key=lambda candidate: candidate.stat().st_mtime,
+            reverse=True,
+        )
+        for preserved_output in preserved_outputs:
+            preserved_metadata = try_probe(preserved_output, args.ffprobe_bin)
+            if preserved_metadata:
+                raw_output = preserved_output
+                raw_metadata = preserved_metadata
+                break
     if raw_metadata:
         pass
     elif existing:
@@ -381,11 +458,23 @@ def main() -> int:
             raise RuntimeError(message)
         raw_metadata = probe(raw_output, args.ffprobe_bin)
 
+    metadata_tagged = False
     if is_bt709_limited(raw_metadata):
         if raw_output != args.output:
             raw_output.replace(args.output)
         final_metadata = raw_metadata
         standardized = False
+    elif has_bt709_limited_picture(raw_metadata):
+        preserved = args.output.with_name(f"{args.output.stem}.pre-bt709.mp4")
+        if preserved.exists() and raw_output != preserved:
+            preserved = args.output.with_name(
+                f"{args.output.stem}.pre-bt709-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}.mp4"
+            )
+        if raw_output != preserved:
+            shutil.move(str(raw_output), str(preserved))
+        final_metadata = tag_bt709_metadata(args, preserved, args.output)
+        standardized = False
+        metadata_tagged = True
     else:
         preserved = args.output.with_name(f"{args.output.stem}.pre-bt709.mp4")
         if preserved.exists() and raw_output != preserved:
@@ -401,11 +490,20 @@ def main() -> int:
         "outputPath": str(args.output),
         "reused": False,
         "standardized": standardized,
+        "metadataTagged": metadata_tagged,
         "media": final_metadata,
         "attempts": args.attempt,
         "concurrency": args.active_concurrency,
     }
-    progress_state(args, "complete", percent=100, totalFrames=final_metadata.get("frames", 0), media=final_metadata, standardized=standardized)
+    progress_state(
+        args,
+        "complete",
+        percent=100,
+        totalFrames=final_metadata.get("frames", 0),
+        media=final_metadata,
+        standardized=standardized,
+        metadataTagged=metadata_tagged,
+    )
     print(json.dumps(result, ensure_ascii=False))
     return 0
 

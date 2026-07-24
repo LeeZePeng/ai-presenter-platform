@@ -237,9 +237,6 @@ def preserve_if_present(path: Path) -> None:
 
 def render_visual(args: argparse.Namespace, composition: str) -> None:
     visual = args.workspace / "out" / "remotion_visual.mp4"
-    raw = visual.with_name(f".{visual.stem}.remotion-raw.mp4")
-    preserve_if_present(visual)
-    preserve_if_present(raw)
     remotion_progress = args.workspace / "out" / "analysis" / "remotion_progress.json"
     if remotion_progress.exists():
         remotion_progress.unlink()
