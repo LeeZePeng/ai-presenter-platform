@@ -16,6 +16,7 @@ import type {PowerCoordinator} from './power-coordinator.js';
 import type {CodexRunner} from './codex-runner.js';
 import type {SourceTranscriber} from './asr.js';
 import {buildCodexPrompt} from './prompt.js';
+import {prepareVoiceReference} from './voice-reference.js';
 import type {JobRecord} from './types.js';
 
 type WorkerOptions = {
@@ -24,6 +25,7 @@ type WorkerOptions = {
   presenterApiUrl: string;
   presenterComfyUrl: string;
   presenterWorkers: Array<{server: string; comfyServer: string}>;
+  qwenTtsBaseUrl: string;
   remotionRuntimeDir: string;
   remotionSkillPath: string;
   remotionBrowserExecutable: string;
@@ -286,6 +288,67 @@ export class JobWorker {
         this.db.addEvent(job.id, 'info', 'fast_render_completed', '快速成片已生成：只执行一次固定工程渲染和旁白封装', {output});
         return;
       }
+      let voiceReferenceCleanPath: string | undefined;
+      let voiceReferenceTranscriptPath: string | undefined;
+      if (job.voiceMode === 'uploaded_reference' && !visualRepairOnly && !reusePresenterRender) {
+        if (!job.assets.voiceReference) throw new Error('参考音色任务缺少声音文件');
+        const reusableVoiceReference =
+          typeof job.metadata.voiceReferenceCleanPath === 'string' &&
+          existsSync(job.metadata.voiceReferenceCleanPath) &&
+          typeof job.metadata.voiceReferenceTranscriptPath === 'string' &&
+          existsSync(job.metadata.voiceReferenceTranscriptPath);
+        if (reusableVoiceReference) {
+          voiceReferenceCleanPath = job.metadata.voiceReferenceCleanPath as string;
+          voiceReferenceTranscriptPath = job.metadata.voiceReferenceTranscriptPath as string;
+          this.db.updateJob(job.id, {status: 'provisioning', stage: '复用参考音色', progress: 9});
+          this.db.addEvent(job.id, 'info', 'voice_reference_reused', '已复用清理和转写完成的参考音色', {
+            voiceReferenceCleanPath,
+            voiceReferenceTranscriptPath,
+          });
+        } else {
+          this.db.updateJob(job.id, {status: 'provisioning', stage: '清理参考音色', progress: 6});
+          this.db.addEvent(job.id, 'info', 'voice_reference_prepare', '正在清理参考音色的底噪、低频轰鸣和首尾空白');
+          const prepared = await prepareVoiceReference(job.assets.voiceReference, workspace, {
+            ffmpegBin: this.options.ffmpegBin,
+            ffprobeBin: this.options.ffprobeBin,
+            isCancelled: () => this.db.isCancelRequested(job.id),
+          });
+          voiceReferenceCleanPath = prepared.audioPath;
+          this.db.updateJob(job.id, {stage: '转写参考音色', progress: 8});
+          const transcript = await this.transcriber.transcribe(
+            prepared.audioPath,
+            workspace,
+            {
+              isCancelled: () => this.db.isCancelRequested(job.id),
+              onEvent: (kind, message, data) => this.db.addEvent(job.id, 'info', `voice_${kind}`, message, data),
+              onProgress: (percent) =>
+                this.db.updateJob(job.id, {
+                  stage: `转写参考音色 ${percent}%`,
+                  progress: 8 + Math.floor(percent / 50),
+                }),
+            },
+            {artifactName: 'voice_reference', mediaLabel: '参考音色', minimumTextCharacters: 2},
+          );
+          voiceReferenceTranscriptPath = transcript.path;
+          const currentMetadata = this.db.getJob(job.id)?.metadata ?? job.metadata;
+          this.db.updateJob(job.id, {
+            metadata: {
+              ...currentMetadata,
+              voiceReferenceCleanPath: prepared.audioPath,
+              voiceReferenceManifestPath: prepared.manifestPath,
+              voiceReferenceSha256: prepared.sourceSha256,
+              voiceReferenceAudioSha256: prepared.audioSha256,
+              voiceReferenceTranscriptPath: transcript.path,
+              voiceReferenceTranscriptSha256: transcript.sha256,
+            },
+          });
+          this.db.addEvent(job.id, 'info', 'voice_reference_ready', '参考音色已清理并取得逐字转写，可用于 Qwen 高保真克隆', {
+            durationSeconds: prepared.durationSeconds,
+            voiceReferenceCleanPath: prepared.audioPath,
+            voiceReferenceTranscriptPath: transcript.path,
+          });
+        }
+      }
       let sourceTranscriptPath: string | undefined;
       if (job.mode === 'clone') {
         if (!job.assets.sourceVideo) throw new Error('复刻任务缺少参考视频');
@@ -324,7 +387,7 @@ export class JobWorker {
           sourceTranscriptPath = transcript.path;
           this.db.updateJob(job.id, {
             metadata: {
-              ...job.metadata,
+              ...(this.db.getJob(job.id)?.metadata ?? job.metadata),
               sourceTranscriptPath: transcript.path,
               sourceTranscriptSha256: transcript.sha256,
             },
@@ -380,6 +443,7 @@ export class JobWorker {
         presenterApiUrl: this.options.presenterApiUrl,
         presenterComfyUrl: this.options.presenterComfyUrl,
         presenterWorkers: this.options.presenterWorkers,
+        qwenTtsBaseUrl: this.options.qwenTtsBaseUrl,
         remotionRuntimeDir: this.options.remotionRuntimeDir,
         remotionSkillPath: this.options.remotionSkillPath,
         remotionBrowserExecutable: this.options.remotionBrowserExecutable,
@@ -393,6 +457,8 @@ export class JobWorker {
         asrThreads: this.options.asrThreads,
         asrUseGpu: this.options.asrUseGpu,
         sourceTranscriptPath,
+        voiceReferenceCleanPath,
+        voiceReferenceTranscriptPath,
       });
 
       const output = await this.runner.run(current, workspace, prompt, {

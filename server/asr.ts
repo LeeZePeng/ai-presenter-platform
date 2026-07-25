@@ -48,6 +48,12 @@ type TranscribeCallbacks = {
   onProgress?: (percent: number) => void;
 };
 
+type TranscribeArtifactOptions = {
+  artifactName?: string;
+  mediaLabel?: string;
+  minimumTextCharacters?: number;
+};
+
 type WhisperSegment = {
   timestamps?: {from?: unknown; to?: unknown};
   offsets?: {from?: unknown; to?: unknown};
@@ -181,14 +187,18 @@ const runProcess = async (
   });
 };
 
-const validTranscript = (value: unknown, sourceSha256: string): value is SourceTranscript => {
+const validTranscript = (
+  value: unknown,
+  sourceSha256: string,
+  minimumTextCharacters = 20,
+): value is SourceTranscript => {
   if (!value || typeof value !== 'object') return false;
   const transcript = value as Partial<SourceTranscript>;
   return (
     transcript.version === 1 &&
     transcript.sourceSha256 === sourceSha256 &&
     typeof transcript.text === 'string' &&
-    transcript.text.trim().length >= 20 &&
+    transcript.text.trim().length >= minimumTextCharacters &&
     Array.isArray(transcript.segments) &&
     transcript.segments.length > 0
   );
@@ -211,28 +221,33 @@ export class SourceTranscriber {
   constructor(private readonly options: SourceTranscriberOptions) {}
 
   async transcribe(
-    sourceVideo: string,
+    sourceMedia: string,
     workspace: string,
     callbacks: TranscribeCallbacks,
+    artifactOptions: TranscribeArtifactOptions = {},
   ): Promise<SourceTranscriptResult> {
-    if (!existsSync(sourceVideo) || statSync(sourceVideo).size <= 1024) throw new Error('复刻任务缺少有效参考视频');
+    const artifactName = artifactOptions.artifactName?.trim() || 'source';
+    if (!/^[a-z0-9_-]+$/i.test(artifactName)) throw new Error('ASR artifactName 只能包含字母、数字、下划线和连字符');
+    const mediaLabel = artifactOptions.mediaLabel?.trim() || '原片';
+    const minimumTextCharacters = Math.max(1, Math.floor(artifactOptions.minimumTextCharacters ?? 20));
+    if (!existsSync(sourceMedia) || statSync(sourceMedia).size <= 1024) throw new Error(`缺少有效${mediaLabel}媒体`);
 
     const analysisDir = path.join(workspace, 'out', 'analysis');
-    const transcriptPath = path.join(analysisDir, 'source_transcript.json');
-    const transcriptTextPath = path.join(analysisDir, 'source_transcript.txt');
-    const rawPrefix = path.join(analysisDir, 'source_transcript.raw');
+    const transcriptPath = path.join(analysisDir, `${artifactName}_transcript.json`);
+    const transcriptTextPath = path.join(analysisDir, `${artifactName}_transcript.txt`);
+    const rawPrefix = path.join(analysisDir, `${artifactName}_transcript.raw`);
     const rawJsonPath = `${rawPrefix}.json`;
-    const localAudioPath = path.join(analysisDir, 'source_audio_16k.wav');
-    const cloudAudioPath = path.join(analysisDir, 'source_audio_16k.mp3');
+    const localAudioPath = path.join(analysisDir, `${artifactName}_audio_16k.wav`);
+    const cloudAudioPath = path.join(analysisDir, `${artifactName}_audio_16k.mp3`);
     mkdirSync(analysisDir, {recursive: true});
 
-    callbacks.onEvent?.('asr_fingerprint', '正在校验参考视频并准备云端转写');
-    const sourceSha256 = await sha256File(sourceVideo);
+    callbacks.onEvent?.('asr_fingerprint', `正在校验${mediaLabel}并准备云端转写`);
+    const sourceSha256 = await sha256File(sourceMedia);
     if (existsSync(transcriptPath)) {
       try {
         const cached = JSON.parse(readFileSync(transcriptPath, 'utf8')) as unknown;
-        if (validTranscript(cached, sourceSha256)) {
-          callbacks.onEvent?.('asr_reused', '已复用该任务的可靠原片转写', {
+        if (validTranscript(cached, sourceSha256, minimumTextCharacters)) {
+          callbacks.onEvent?.('asr_reused', `已复用该任务的可靠${mediaLabel}转写`, {
             language: cached.language,
             segments: cached.segments.length,
           });
@@ -247,9 +262,9 @@ export class SourceTranscriber {
     if (cachePath && existsSync(cachePath)) {
       try {
         const cached = JSON.parse(readFileSync(cachePath, 'utf8')) as unknown;
-        if (validTranscript(cached, sourceSha256)) {
+        if (validTranscript(cached, sourceSha256, minimumTextCharacters)) {
           writeTranscriptFiles(cached, transcriptPath, transcriptTextPath);
-          callbacks.onEvent?.('asr_cache_reused', '已按原片指纹复用云端转写缓存', {
+          callbacks.onEvent?.('asr_cache_reused', `已按${mediaLabel}指纹复用云端转写缓存`, {
             language: cached.language,
             model: cached.model,
             segments: cached.segments.length,
@@ -257,7 +272,7 @@ export class SourceTranscriber {
           return {path: transcriptPath, sha256: createHash('sha256').update(readFileSync(transcriptPath)).digest('hex')};
         }
       } catch {
-        callbacks.onEvent?.('asr_cache_invalid', '忽略损坏的原片转写缓存');
+        callbacks.onEvent?.('asr_cache_invalid', `忽略损坏的${mediaLabel}转写缓存`);
       }
     }
 
@@ -275,10 +290,11 @@ export class SourceTranscriber {
       if (this.options.provider === 'modelverse') {
         try {
           normalized = await this.transcribeWithModelVerse(
-            sourceVideo,
+            sourceMedia,
             cloudAudioPath,
             rawJsonPath,
             callbacks,
+            mediaLabel,
           );
           resolvedModel = this.options.cloudModel;
           resolvedProvider = 'modelverse';
@@ -288,12 +304,12 @@ export class SourceTranscriber {
             error: cloudErrorMessage(error),
           });
           if (!this.options.localFallback) throw error;
-          normalized = await this.transcribeLocally(sourceVideo, localAudioPath, rawPrefix, rawJsonPath, callbacks);
+          normalized = await this.transcribeLocally(sourceMedia, localAudioPath, rawPrefix, rawJsonPath, callbacks, mediaLabel);
           resolvedModel = path.basename(this.options.model);
           resolvedProvider = 'local';
         }
       } else {
-        normalized = await this.transcribeLocally(sourceVideo, localAudioPath, rawPrefix, rawJsonPath, callbacks);
+        normalized = await this.transcribeLocally(sourceMedia, localAudioPath, rawPrefix, rawJsonPath, callbacks, mediaLabel);
         resolvedModel = path.basename(this.options.model);
         resolvedProvider = 'local';
       }
@@ -302,14 +318,14 @@ export class SourceTranscriber {
       rmSync(cloudAudioPath, {force: true});
     }
 
-    if (normalized.text.length < 20 || normalized.segments.length === 0) {
-      throw new Error('云端 ASR 未识别出足够的原片口播内容');
+    if (normalized.text.length < minimumTextCharacters || normalized.segments.length === 0) {
+      throw new Error(`云端 ASR 未识别出足够的${mediaLabel}口播内容`);
     }
     const durationSeconds = normalized.segments.at(-1)?.endSeconds ?? 0;
     const transcript: SourceTranscript = {
       version: 1,
       sourceSha256,
-      sourceSizeBytes: statSync(sourceVideo).size,
+      sourceSizeBytes: statSync(sourceMedia).size,
       durationSeconds,
       language: normalized.language,
       model: resolvedModel,
@@ -324,7 +340,7 @@ export class SourceTranscriber {
       writeFileSync(temporaryCache, `${JSON.stringify(transcript, null, 2)}\n`, {encoding: 'utf8', mode: 0o600});
       renameSync(temporaryCache, cachePath);
     }
-    callbacks.onEvent?.('asr_completed', '原片转写完成，准备唤醒数字人 GPU', {
+    callbacks.onEvent?.('asr_completed', `${mediaLabel}转写完成`, {
       language: normalized.language,
       model: resolvedModel,
       provider: resolvedProvider,
@@ -335,13 +351,14 @@ export class SourceTranscriber {
   }
 
   private async transcribeWithModelVerse(
-    sourceVideo: string,
+    sourceMedia: string,
     audioPath: string,
     rawJsonPath: string,
     callbacks: TranscribeCallbacks,
+    mediaLabel: string,
   ): Promise<ReturnType<typeof normalizeOpenAiTranscript>> {
     if (!this.options.cloudApiKey) throw new Error('未配置 ModelVerse 云端 ASR 密钥');
-    callbacks.onEvent?.('asr_extract', '正在压缩原片音频供云端转写，数字人 GPU 尚未启动');
+    callbacks.onEvent?.('asr_extract', `正在压缩${mediaLabel}音频供云端转写，数字人 GPU 尚未启动`);
     await runProcess(
       this.options.ffmpegBin,
       [
@@ -349,7 +366,7 @@ export class SourceTranscriber {
         '-v',
         'error',
         '-i',
-        sourceVideo,
+        sourceMedia,
         '-vn',
         '-ac',
         '1',
@@ -366,7 +383,7 @@ export class SourceTranscriber {
       '云端 ASR 音频准备',
     );
     callbacks.onProgress?.(5);
-    callbacks.onEvent?.('asr_cloud_running', '正在使用 ModelVerse whisper-1 云端转写，数字人 GPU 尚未启动', {
+    callbacks.onEvent?.('asr_cloud_running', `正在使用 ModelVerse whisper-1 云端转写${mediaLabel}，数字人 GPU 尚未启动`, {
       model: this.options.cloudModel,
       uploadBytes: statSync(audioPath).size,
     });
@@ -420,18 +437,19 @@ export class SourceTranscriber {
   }
 
   private async transcribeLocally(
-    sourceVideo: string,
+    sourceMedia: string,
     audioPath: string,
     rawPrefix: string,
     rawJsonPath: string,
     callbacks: TranscribeCallbacks,
+    mediaLabel: string,
   ): Promise<ReturnType<typeof normalizeWhisperTranscript>> {
     if (!existsSync(this.options.bin)) throw new Error(`本机 ASR 程序不存在: ${this.options.bin}`);
     if (!existsSync(this.options.model)) throw new Error(`本机 ASR 模型不存在: ${this.options.model}`);
-    callbacks.onEvent?.('asr_local_extract', '正在准备本机 ASR 音频，数字人 GPU 尚未启动');
+    callbacks.onEvent?.('asr_local_extract', `正在准备${mediaLabel}的本机 ASR 音频，数字人 GPU 尚未启动`);
     await runProcess(
       this.options.ffmpegBin,
-      ['-y', '-v', 'error', '-i', sourceVideo, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', audioPath],
+      ['-y', '-v', 'error', '-i', sourceMedia, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', audioPath],
       Math.min(this.options.timeoutMs, 30 * 60 * 1000),
       callbacks,
       '本机 ASR 音频提取',
@@ -440,11 +458,11 @@ export class SourceTranscriber {
       'asr_local_running',
       this.options.provider === 'modelverse'
         ? this.options.useGpu
-          ? '云端不可用，正在使用 Mac Metal 转写原片'
-          : '云端不可用，正在使用本机 CPU 转写原片'
+          ? `云端不可用，正在使用 Mac Metal 转写${mediaLabel}`
+          : `云端不可用，正在使用本机 CPU 转写${mediaLabel}`
         : this.options.useGpu
-          ? '正在使用 Mac Metal 转写原片'
-          : '正在使用本机 CPU 转写原片',
+          ? `正在使用 Mac Metal 转写${mediaLabel}`
+          : `正在使用本机 CPU 转写${mediaLabel}`,
     );
     await runProcess(
       this.options.bin,

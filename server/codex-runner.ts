@@ -38,6 +38,7 @@ const secretNames = [
   'COMPSHARE_PRIVATE_KEY',
   'COMPSHARE_PUBLIC_KEY',
   'MODELVERSE_API_KEY',
+  'QWEN_TTS_API_TOKEN',
   'HEYGEN_API_KEY',
   'OPENAI_API_KEY',
   'DEEPSEEK_API_KEY',
@@ -75,8 +76,12 @@ type ResultManifest = {
   preflightReportPath?: unknown;
   sceneContractReportPath?: unknown;
   narrationPath?: unknown;
+  narrationProvider?: unknown;
   narrationSha256?: unknown;
   narrationScriptPath?: unknown;
+  audioQualityReportPath?: unknown;
+  voiceReferencePath?: unknown;
+  voiceReferenceTranscriptPath?: unknown;
   ttsScriptPath?: unknown;
   pronunciationLexiconPath?: unknown;
   pronunciationPreviewPath?: unknown;
@@ -2258,6 +2263,55 @@ export class CodexRunner {
     if (!existsSync(narrationScript) || statSync(narrationScript).size <= 16) throw new Error('最终口播文案不存在');
     const narrationSha256 = fileSha256(narration);
     if (manifest.narrationSha256 !== narrationSha256) throw new Error('最终旁白 SHA-256 与结果清单不一致');
+    const preparedReferenceHash = String(job.metadata.voiceReferenceAudioSha256 ?? '');
+    if (job.voiceMode === 'uploaded_reference' && /^[a-f0-9]{64}$/.test(preparedReferenceHash)) {
+      if (manifest.narrationProvider !== 'qwen3-tts-12hz-1.7b-base') {
+        throw new Error('参考音色任务没有使用 Qwen3-TTS Base 真实克隆');
+      }
+      const voiceReference = resolveWorkspacePath(workspace, manifest.voiceReferencePath, 'voiceReferencePath');
+      const expectedVoiceReference = path.join(workspace, 'out', 'audio', 'voice_reference_clean.wav');
+      if (
+        voiceReference !== expectedVoiceReference ||
+        !existsSync(voiceReference) ||
+        fileSha256(voiceReference) !== preparedReferenceHash
+      ) {
+        throw new Error('参考音色任务没有使用 worker 清理并锁定的同一份声音');
+      }
+      const referenceTranscript = resolveWorkspacePath(
+        workspace,
+        manifest.voiceReferenceTranscriptPath,
+        'voiceReferenceTranscriptPath',
+      );
+      const expectedReferenceTranscript = path.join(workspace, 'out', 'analysis', 'voice_reference_transcript.json');
+      const expectedReferenceTranscriptHash = String(job.metadata.voiceReferenceTranscriptSha256 ?? '');
+      if (
+        referenceTranscript !== expectedReferenceTranscript ||
+        !existsSync(referenceTranscript) ||
+        !/^[a-f0-9]{64}$/.test(expectedReferenceTranscriptHash) ||
+        fileSha256(referenceTranscript) !== expectedReferenceTranscriptHash
+      ) {
+        throw new Error('参考音色任务没有使用 worker 锁定的准确逐字稿');
+      }
+      const audioQualityReportPath = resolveWorkspacePath(
+        workspace,
+        manifest.audioQualityReportPath,
+        'audioQualityReportPath',
+      );
+      let audioQualityReport: Record<string, unknown>;
+      try {
+        audioQualityReport = JSON.parse(readFileSync(audioQualityReportPath, 'utf8')) as Record<string, unknown>;
+      } catch {
+        throw new Error('参考音色任务缺少有效的音频质量报告');
+      }
+      const reviewedNarration = resolveWorkspacePath(
+        workspace,
+        audioQualityReport.audioPath,
+        'audioQualityReport.audioPath',
+      );
+      if (audioQualityReport.valid !== true || reviewedNarration !== narration) {
+        throw new Error('Qwen 参考音色旁白没有通过真实音频质量检查');
+      }
+    }
     const narrationDuration = probeDuration(narration);
     const narrationTimelinePath = resolveWorkspacePath(
       workspace,

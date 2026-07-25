@@ -78,7 +78,8 @@ describe('buildCodexPrompt', () => {
     expect(prompt).toContain('必须严格按顺序执行：先完成最终口播文案');
     expect(prompt).toContain('validate_narration_pace.py');
     expect(prompt).toContain('--min-rate 5.8 --max-rate 7.2');
-    expect(prompt).toContain('provider 从 1.4-1.5 左右起测');
+    expect(prompt).toContain('Qwen 克隆音色从 1.12 倍开始');
+    expect(prompt).toContain('禁止用 1.4-1.5 倍的机械变速');
     expect(prompt).toContain('包装器输出的 out/remotion_visual.mp4 是视觉母版');
     expect(prompt).toContain('narrationTimelinePath');
     expect(prompt).toContain('captionTimelinePath');
@@ -120,6 +121,40 @@ describe('buildCodexPrompt', () => {
     expect(prompt).toContain('marketingTitle');
     expect(prompt).toContain('发布目标是原尺寸母版');
     expect(prompt).toContain('"publishPlatform": "original"');
+
+    const referenceVoicePrompt = buildCodexPrompt(
+      {
+        ...job,
+        voiceMode: 'uploaded_reference',
+        assets: {...job.assets, voiceReference: '/jobs/job-1/assets/voice.wav'},
+      },
+      '/jobs/job-1',
+      {
+        skillPath: '/skills/ai-presenter-video-replica',
+        presenterApiUrl: 'http://presenter:7860',
+        presenterComfyUrl: 'http://presenter:8188',
+        qwenTtsBaseUrl: 'http://presenter:7860/qwen-tts/v1',
+        remotionRuntimeDir: '/runtime/remotion',
+        remotionSkillPath: '/skills/remotion-best-practices',
+        remotionBrowserExecutable: '/runtime/headless-shell',
+        remotionFontDir: '/jobs/job-1/remotion/public/fonts',
+        asrBin: '/runtime/whisper-cli',
+        asrModel: '/runtime/ggml-small.bin',
+        asrLanguage: 'zh',
+        asrThreads: 8,
+        voiceReferenceCleanPath: '/jobs/job-1/out/audio/voice_reference_clean.wav',
+        voiceReferenceTranscriptPath: '/jobs/job-1/out/analysis/voice_reference_transcript.json',
+      },
+    );
+    expect(referenceVoicePrompt).toContain('云端 Qwen3-TTS Base 克隆同一人物声音');
+    expect(referenceVoicePrompt).toContain('/scripts/qwen_cloud_tts.py');
+    expect(referenceVoicePrompt).toContain('--cache-key');
+    expect(referenceVoicePrompt).toContain('禁止用 Cherry、Vivian');
+    expect(referenceVoicePrompt).toContain('narrationProvider="qwen3-tts-12hz-1.7b-base"');
+    expect(referenceVoicePrompt).toContain('/jobs/job-1/out/audio/voice_reference_clean.wav');
+    expect(referenceVoicePrompt).toContain('/jobs/job-1/out/analysis/voice_reference_transcript.json');
+    expect(referenceVoicePrompt).toContain('/scripts/validate_audio_quality.py');
+    expect(referenceVoicePrompt).toContain('audioQualityReportPath');
 
     const clonePrompt = buildCodexPrompt(
       {...job, mode: 'clone', replicaMode: 'exact', script: '', topic: '嵌入原片录屏', assets: {sourceVideo: '/jobs/job-1/assets/source.mp4'}},

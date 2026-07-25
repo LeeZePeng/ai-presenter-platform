@@ -101,6 +101,7 @@ const worker = new JobWorker(db, power, runner, transcriber, {
   presenterApiUrl: config.presenterApiUrl,
   presenterComfyUrl: config.presenterComfyUrl,
   presenterWorkers: config.presenterWorkers,
+  qwenTtsBaseUrl: config.qwenTts.baseUrl,
   remotionRuntimeDir: config.remotionRuntimeDir,
   remotionSkillPath: config.remotionSkillPath,
   remotionBrowserExecutable: config.remotionBrowserExecutable,

@@ -66,6 +66,10 @@ export const config = {
     server: workerUrl(presenterApiUrl, index),
     comfyServer: workerUrl(presenterComfyUrl, index),
   })),
+  qwenTts: {
+    baseUrl: env.QWEN_TTS_BASE_URL?.trim() || `${presenterApiUrl.replace(/\/$/, '')}/qwen-tts/v1`,
+    apiToken: env.QWEN_TTS_API_TOKEN?.trim() ?? '',
+  },
   remotionRuntimeDir: path.resolve(env.REMOTION_RUNTIME_DIR ?? '/var/lib/ai-presenter/runtime/remotion-4.0.490'),
   remotionSkillPath: path.resolve(
     env.REMOTION_SKILL_PATH ?? '/var/lib/ai-presenter/.codex/skills/remotion-best-practices',
@@ -208,6 +212,8 @@ export const assertProductionConfiguration = (): void => {
       REMOTION_SKILL: path.join(config.remotionSkillPath, 'SKILL.md'),
       INFINITE_TALK_SCRIPT: path.join(config.codex.skillPath, 'scripts', 'infinite_talk_api.py'),
       LONG_FORM_TTS_SCRIPT: path.join(config.codex.skillPath, 'scripts', 'long_form_tts.py'),
+      QWEN_TTS_SCRIPT: path.join(config.codex.skillPath, 'scripts', 'qwen_cloud_tts.py'),
+      AUDIO_QUALITY_SCRIPT: path.join(config.codex.skillPath, 'scripts', 'validate_audio_quality.py'),
       NARRATION_TIMELINE_SCRIPT: path.join(config.codex.skillPath, 'scripts', 'transcribe_timeline.py'),
       VISUAL_PREFLIGHT_SCRIPT: path.join(config.codex.skillPath, 'scripts', 'validate_visual_preflight.py'),
       PRESENTER_TRACK_SCRIPT: path.join(config.codex.skillPath, 'scripts', 'prepare_presenter_track.py'),
