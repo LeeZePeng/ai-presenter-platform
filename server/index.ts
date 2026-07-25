@@ -20,6 +20,7 @@ import {createFullRegenerationJob, createRetryJob, RetryJobError} from './retry.
 import {publicEvents} from './public-events.js';
 import {YouTubeService} from './youtube.js';
 import {DeploymentManager} from './deployment.js';
+import {probeQwenTtsHealth} from './qwen-tts-health.js';
 import {migrateLegacyArtifactPaths} from './path-migration.js';
 import type {JobAssets, PresenterAsset, PresenterAssetKind} from './types.js';
 
@@ -436,8 +437,13 @@ app.use('/api/admin', adminAuth);
 
 app.get('/api/admin/dashboard', async (_req, res, next) => {
   try {
+    const [system, qwenTts] = await Promise.all([
+      power.systemSnapshot(),
+      probeQwenTtsHealth({baseUrl: config.qwenTts.baseUrl, apiToken: config.qwenTts.apiToken}),
+    ]);
     res.json({
-      system: await power.systemSnapshot(),
+      system,
+      qwenTts,
       metrics: db.metrics24h(),
       recentEvents: adminEvents(db.listRecentEvents()),
       serverTime: new Date().toISOString(),

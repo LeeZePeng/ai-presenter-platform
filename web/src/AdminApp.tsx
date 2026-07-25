@@ -448,6 +448,7 @@ export const AdminApp = () => {
                 <div><dt>时间片开始</dt><dd>{formatTime(system?.billingWindowStartedAt ?? null)}</dd></div>
                 <div><dt>下次检测</dt><dd>{formatTime(system?.nextPowerCheckAt ?? null, true)}</dd></div>
                 <div><dt>队列</dt><dd>{system?.queue.pending ?? 0} 等待 / {system?.queue.active ?? 0} 运行</dd></div>
+                <div><dt>参考音色</dt><dd>{dashboard?.qwenTts.message || '读取中'}<small>{dashboard?.qwenTts.model || 'Qwen3-TTS Base'}</small></dd></div>
               </dl>
               {(system?.lastPowerError || system?.lastPowerAction) && (
                 <div className={`power-message ${system.lastPowerError ? 'error' : ''}`}>

@@ -109,6 +109,12 @@ export type AdminEvent = JobEvent & {
 
 export type AdminDashboard = {
   system: SystemSnapshot;
+  qwenTts: {
+    configured: boolean;
+    status: 'unconfigured' | 'loading' | 'ready' | 'unavailable';
+    model: string | null;
+    message: string;
+  };
   metrics: AdminMetrics;
   recentEvents: AdminEvent[];
   serverTime: string;
