@@ -48,7 +48,7 @@ InfiniteTalk boundaries must never drive visual cuts.
 ## Complete caption contract
 
 - Use the locked final narration audio for timing and `out/audio/final_script.txt` for the authoritative words.
-- For generated Douyin/WeChat Chinese narration, require a measured 5.8-7.2 meaningful spoken units per second with 0.15-0.35 second sentence pauses. Start voice-clone provider speed around 1.4-1.5 when supported, but trust the candidate WAV measurement rather than the requested parameter. Run `validate_narration_pace.py` before naming, hashing, or treating the audio as locked; never time-stretch the locked narration or lip-sync result.
+- For generated Douyin/WeChat Chinese narration, require a measured 5.8-7.2 meaningful spoken units per second with 0.15-0.35 second sentence pauses. Start Qwen reference-voice cloning around 1.12 and only increase toward 1.18 after measuring a real candidate; never begin at 1.4-1.5 because it damages timbre and clarity. Run `validate_narration_pace.py` before naming, hashing, or treating the audio as locked; never time-stretch the locked narration or lip-sync result.
 - Correct ASR product names, homophones, punctuation, and broken clauses against the locked script without changing timing boundaries arbitrarily.
 - Write `out/analysis/caption_timeline.json` with `version`, `narrationTimelinePath`, `scriptPath`, and phrase-level `segments` containing `startSeconds`, `endSeconds`, and `text`.
 - Require bidirectional normalized text coverage of at least 95% between caption text and the locked script. Cover the opening and ending, leave no gap over 0.5 seconds, keep captions at 1.2-4.5 seconds normally, and never exceed 6 seconds.

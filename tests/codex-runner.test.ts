@@ -568,6 +568,9 @@ describe('validateVisualReview', () => {
         issues: ['次要字号可再统一'],
         strengths: ['原片风格一致'],
         requiredFixes: [],
+        continuousReviewCompleted: true,
+        continuousReviewDurationSeconds: 448.5,
+        continuousReviewIssues: [],
       }),
     ).toMatchObject({approved: true, score: 88});
     expect(
@@ -575,8 +578,14 @@ describe('validateVisualReview', () => {
         approved: true,
         coverApproved: true,
         coverIssues: [],
+        continuousReviewCompleted: true,
+        continuousReviewDurationSeconds: 448.5,
+        continuousReviewIssues: [],
       }),
     ).toMatchObject({approved: true, score: null, fatalIssues: [], issues: []});
+    expect(() =>
+      validateVisualReview({approved: true, coverApproved: true, continuousReviewCompleted: false}),
+    ).toThrow('未完成整片连续观看');
     expect(() => validateVisualReview({coverApproved: true, coverIssues: []})).toThrow('缺少有效结论');
   });
 });

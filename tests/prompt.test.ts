@@ -96,7 +96,7 @@ describe('buildCodexPrompt', () => {
     expect(prompt).toContain('@remotion/media Video');
     expect(prompt).toContain('data-presenter-layer="infinite-talk"');
     expect(prompt).toContain('FFmpeg 只能用 -c:v copy');
-    expect(prompt).toContain('coverApproved 和 coverIssues');
+    expect(prompt).toContain('coverApproved、coverIssues');
     expect(prompt).toContain('禁止让图片/视频生成模型绘制文字');
     expect(prompt).toContain('@remotion/fonts');
     expect(prompt).toContain('Presenter Noto Sans SC');
@@ -104,7 +104,13 @@ describe('buildCodexPrompt', () => {
     expect(prompt).toContain('render_remotion.py');
     expect(prompt).toContain('--concurrency 16');
     expect(prompt).toContain('--fallback-concurrency 12');
-    expect(prompt).toContain('完整 render 必须且只能调用');
+    expect(prompt).toContain('完整低码审片代理');
+    expect(prompt).toContain('--scale 0.25');
+    expect(prompt).toContain('必须连续播放并从 0 秒看到结尾');
+    expect(prompt).toContain('reviewProxyPath');
+    expect(prompt).toContain('continuousReviewCompleted');
+    expect(prompt).toContain('Hiragino Sans GB');
+    expect(prompt).toContain('禁止把完整横屏缩在居中的小卡片里');
     expect(prompt).toContain('Remotion 4.0.490');
     expect(prompt).toContain('严禁改用 FFmpeg drawtext/drawbox');
     expect(prompt).toContain('禁止为追逐 ffprobe 平均码率反复重编码');

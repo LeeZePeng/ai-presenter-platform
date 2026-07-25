@@ -68,6 +68,7 @@ type ResultManifest = {
   compositionRenderer?: unknown;
   remotionEntryPath?: unknown;
   remotionVisualPath?: unknown;
+  reviewProxyPath?: unknown;
   visualDesignPath?: unknown;
   visualReviewPath?: unknown;
   finalReviewMontagePath?: unknown;
@@ -112,6 +113,9 @@ type VisualReview = {
   issues: string[];
   strengths: string[];
   requiredFixes: string[];
+  continuousReviewCompleted: true;
+  continuousReviewDurationSeconds: number;
+  continuousReviewIssues: string[];
 };
 
 export const validateVisualReview = (value: unknown): VisualReview => {
@@ -139,6 +143,13 @@ export const validateVisualReview = (value: unknown): VisualReview => {
   if (typeof review.coverApproved !== 'boolean') {
     throw new Error('独立视觉审查缺少封面结论');
   }
+  if (review.continuousReviewCompleted !== true) {
+    throw new Error('独立视觉审查未完成整片连续观看');
+  }
+  const continuousReviewDurationSeconds = Number(review.continuousReviewDurationSeconds);
+  if (!Number.isFinite(continuousReviewDurationSeconds) || continuousReviewDurationSeconds <= 0) {
+    throw new Error('独立视觉审查缺少有效的连续观看时长');
+  }
   return {
     approved: review.approved,
     score,
@@ -149,6 +160,9 @@ export const validateVisualReview = (value: unknown): VisualReview => {
     issues: stringArray('issues'),
     strengths: stringArray('strengths'),
     requiredFixes: stringArray('requiredFixes'),
+    continuousReviewCompleted: true,
+    continuousReviewDurationSeconds,
+    continuousReviewIssues: stringArray('continuousReviewIssues'),
   };
 };
 
@@ -2164,8 +2178,14 @@ export class CodexRunner {
     if (manifestOutput !== expected) throw new Error('结果清单 outputPath 与最终成片路径不一致');
     const remotionEntry = resolveWorkspacePath(workspace, manifest.remotionEntryPath, 'remotionEntryPath');
     const remotionVisual = resolveWorkspacePath(workspace, manifest.remotionVisualPath, 'remotionVisualPath');
+    const reviewProxy = resolveWorkspacePath(workspace, manifest.reviewProxyPath, 'reviewProxyPath');
     if (!existsSync(remotionEntry) || statSync(remotionEntry).size <= 32) throw new Error('Remotion 入口文件不存在');
     validateRemotionImplementation(remotionEntry);
+    if (!existsSync(reviewProxy) || statSync(reviewProxy).size <= 1024) {
+      throw new Error('缺少完整低码审片代理');
+    }
+    const reviewProxyDuration = probeDuration(reviewProxy);
+    const reviewProxyDimensions = probeDimensions(reviewProxy);
     if (!existsSync(remotionVisual) || statSync(remotionVisual).size <= 1024) {
       throw new Error('Remotion 视觉成片不存在');
     }
@@ -2199,6 +2219,12 @@ export class CodexRunner {
       throw new Error(
         `最终视频尺寸必须为 ${expectedLayout.final.width}x${expectedLayout.final.height}，当前为 ${outputDimensions.width}x${outputDimensions.height}`,
       );
+    }
+    if (
+      Math.abs(reviewProxyDimensions.width / reviewProxyDimensions.height - outputDimensions.width / outputDimensions.height) >
+      0.005
+    ) {
+      throw new Error('完整审片代理画幅与最终视频不一致');
     }
     const coverDimensions = probeDimensions(cover);
     if (coverDimensions.width !== outputDimensions.width || coverDimensions.height !== outputDimensions.height) {
@@ -2276,6 +2302,9 @@ export class CodexRunner {
       if (error instanceof Error) throw error;
       throw new Error('视觉审查结果不是有效 JSON');
     }
+    if (Math.abs(visualReview.continuousReviewDurationSeconds - reviewProxyDuration) > 2) {
+      throw new Error('视觉审查记录的连续观看时长与完整审片代理不一致');
+    }
     callbacks.onEvent('visual_review_completed', '同一 Codex 会话已完成人工视觉审查', {
       approved: visualReview.approved,
       score: visualReview.score,
@@ -2284,6 +2313,9 @@ export class CodexRunner {
       coverApproved: visualReview.coverApproved,
       coverScore: visualReview.coverScore,
       coverIssues: visualReview.coverIssues,
+      continuousReviewCompleted: visualReview.continuousReviewCompleted,
+      continuousReviewDurationSeconds: visualReview.continuousReviewDurationSeconds,
+      continuousReviewIssues: visualReview.continuousReviewIssues,
     });
     if (!visualReview.approved || visualReview.fatalIssues.length) {
       const detail =
@@ -2586,6 +2618,9 @@ export class CodexRunner {
       });
     }
     const actualDuration = probeDuration(expected);
+    if (Math.abs(reviewProxyDuration - actualDuration) > 2) {
+      throw new Error('完整审片代理时长与最终视频不一致');
+    }
     const declaredDuration = Number(manifest.durationSeconds);
     if (!Number.isFinite(declaredDuration) || Math.abs(declaredDuration - actualDuration) > 1.5) {
       throw new Error('结果清单时长与最终 MP4 不一致');

@@ -72,9 +72,17 @@ When the user selects `真人主画面·悬浮组件`, treat it as an explicit c
 
 - Use `spring()` or eased `interpolate()` motion. Entrances should settle in 8-18 frames.
 - Preserve natural demo motion and use phrase-triggered edits when helpful. Do not add motion only to satisfy a frame-difference check.
-- Use source-matched type scale and contrast. Keep Chinese `letterSpacing` at 0 and use only explicitly loaded 400, 700, and 900 Noto Sans CJK SC weights.
+- On macOS, prefer Hiragino Sans GB or PingFang SC for Chinese and SF Pro Display for Latin text, with the explicitly loaded Noto Sans CJK SC files as a portable fallback. Use 600/700 for most headlines and 500/600 for captions; reserve 900 for a single short numeric or keyword hit. Keep Chinese `letterSpacing` at 0.
 
-## 8. Required implementation evidence
+## 8. Continuous review before quality approval
+
+- Stills are for crop, typography, safe-area, and collision checks. They cannot prove editing rhythm, source-video motion, cue timing, subtitle page changes, or presenter/evidence handoffs.
+- Render a complete low-resolution review proxy from the same Remotion composition and play it continuously from frame zero to the ending before the HQ master.
+- During continuous review, record every timing mismatch, repetitive stretch, decoder flash, stale caption, awkward cut, frozen demonstration, and unmotivated animation. Fix the composition and review the complete proxy again.
+- `visual_review.json` records `continuousReviewCompleted`, `continuousReviewDurationSeconds`, and `continuousReviewIssues`. Approval is invalid when the full proxy was not watched.
+- For 9:16 delivery of 16:9 source evidence, use a full-width semantic crop or controlled pan occupying roughly 45-55% of frame height. A small centered landscape card with large empty bands is not phone-readable evidence.
+
+## 9. Required implementation evidence
 
 Before full render, require:
 
@@ -91,7 +99,7 @@ Before full render, require:
 
 The storyboard proves planning only. The cue stills and motion pairs prove JSX implementation.
 
-## 9. Deterministic failure conditions
+## 10. Deterministic failure conditions
 
 Fail before delivery when any of these is true:
 

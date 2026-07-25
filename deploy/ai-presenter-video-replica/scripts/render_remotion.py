@@ -130,6 +130,7 @@ def progress_state(args: argparse.Namespace, state: str, **changes: Any) -> dict
         "outputPath": str(args.output.resolve()),
         "concurrency": args.active_concurrency,
         "crf": args.crf,
+        "scale": args.scale,
         "attempt": args.attempt,
         "error": None,
     }
@@ -155,6 +156,7 @@ def run_remotion(args: argparse.Namespace, concurrency: int, raw_output: Path) -
         "--color-space=bt709",
         f"--crf={args.crf}",
         f"--concurrency={concurrency}",
+        f"--scale={args.scale}",
         "--muted",
         f"--timeout={args.timeout_ms}",
         "--overwrite",
@@ -389,6 +391,7 @@ def main() -> int:
     parser.add_argument("--concurrency", required=True, type=int)
     parser.add_argument("--fallback-concurrency", action="append", type=int, default=[])
     parser.add_argument("--crf", type=int, default=12)
+    parser.add_argument("--scale", type=float, default=1.0)
     parser.add_argument("--timeout-ms", type=int, default=120000)
     parser.add_argument("--ffmpeg-bin", default="ffmpeg")
     parser.add_argument("--ffprobe-bin", default="ffprobe")
@@ -397,6 +400,8 @@ def main() -> int:
         parser.error("--concurrency must be between 1 and 16")
     if not 10 <= args.crf <= 20:
         parser.error("--crf must be between 10 and 20")
+    if not 0.1 <= args.scale <= 1.0:
+        parser.error("--scale must be between 0.1 and 1.0")
     cli = args.runtime_dir / "node_modules" / ".bin" / "remotion"
     for candidate, name in [(cli, "Remotion CLI"), (args.entry, "entry"), (args.public_dir, "public directory"), (args.browser_executable, "browser")]:
         if not candidate.exists():
@@ -494,6 +499,7 @@ def main() -> int:
         "media": final_metadata,
         "attempts": args.attempt,
         "concurrency": args.active_concurrency,
+        "scale": args.scale,
     }
     progress_state(
         args,
