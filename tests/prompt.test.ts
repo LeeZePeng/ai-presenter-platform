@@ -76,8 +76,9 @@ describe('buildCodexPrompt', () => {
     expect(prompt).toContain('人物缩小、移到证据之外或完全隐藏');
     expect(prompt).toContain('旁白时间戳工具');
     expect(prompt).toContain('必须严格按顺序执行：先完成最终口播文案');
-    expect(prompt).toContain('约 6-7 个有效汉字/秒');
-    expect(prompt).toContain('0.15-0.35 秒');
+    expect(prompt).toContain('validate_narration_pace.py');
+    expect(prompt).toContain('--min-rate 5.8 --max-rate 7.2');
+    expect(prompt).toContain('provider 从 1.4-1.5 左右起测');
     expect(prompt).toContain('包装器输出的 out/remotion_visual.mp4 是视觉母版');
     expect(prompt).toContain('narrationTimelinePath');
     expect(prompt).toContain('captionTimelinePath');
@@ -268,6 +269,7 @@ describe('buildCodexPrompt', () => {
     expect(douyinPrompt).toContain('第 0 帧');
     expect(douyinPrompt).toContain('主标题至少 84px');
     expect(douyinPrompt).toContain('x=80-900、y=140-1580');
+    expect(douyinPrompt).toContain('0.15-0.35 秒');
     expect(douyinPrompt).toContain('"publishPlatform": "douyin"');
 
     const avatarCanvasPrompt = buildCodexPrompt(
