@@ -12,6 +12,7 @@ import {
   extractCodexThreadId,
   inspectArtifactProgress,
   isGrossLumaMismatch,
+  isTransientCodexFailure,
   shouldContinueCodexGoal,
   shouldStopSettledGoalTurn,
   validateCaptionTimeline,
@@ -86,6 +87,16 @@ describe('Codex Goal continuation', () => {
         }),
       ).toBe(false);
     }
+  });
+
+  it('distinguishes transient Codex service outages from real Goal blockers', () => {
+    expect(
+      isTransientCodexFailure(
+        'unexpected status 503 Service Unavailable: high demand, biscuit_baker_service_me_circuit_open',
+      ),
+    ).toBe(true);
+    expect(isTransientCodexFailure('stream disconnected before completion: websocket closed by server')).toBe(true);
+    expect(isTransientCodexFailure('缺少用户授权，无法继续调用付费服务')).toBe(false);
   });
 
   it('stops a residual CLI process only after the Goal is newly settled', () => {

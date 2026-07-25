@@ -1,6 +1,6 @@
 import {spawn, spawnSync, type ChildProcess} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync} from 'node:fs';
+import {existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {resolvePresenterLayout} from './presenter-layout.js';
@@ -1391,6 +1391,11 @@ export const shouldContinueCodexGoal = (input: {
   !input.terminalConstraintFailure &&
   !['blocked', 'complete'].includes(input.goalStatus);
 
+export const isTransientCodexFailure = (message: string): boolean =>
+  /(?:\b(?:429|500|502|503|504)\b|service unavailable|high demand|circuit[_ -]?open|stream disconnected|error sending request|websocket closed|connection reset|connection timed out)/i.test(
+    message,
+  );
+
 export const codexValidationRepairPrompt = (error: string, turn: number, remainingMs: number): string =>
   [
     `平台独立验收在 Goal 完成后失败，这是同一任务的第 ${turn} 轮验收修复。`,
@@ -1847,6 +1852,8 @@ export class CodexRunner {
     let stderr = '';
     let eventCount = 0;
     let lastFailure = '';
+    let turnFailure = '';
+    let transientFreshStartCount = 0;
     let lastArtifactKey = '';
     let reportedProgress = 24;
     const reportProgress = (stage: string, progress: number): void => {
@@ -1879,7 +1886,10 @@ export class CodexRunner {
         const rawMessage =
           item.text ?? item.command ?? item.status ?? event.text ?? event.message ?? event.error ?? kind;
         const message = redact(typeof rawMessage === 'string' ? rawMessage : JSON.stringify(rawMessage));
-        if (kind === 'error' || kind.endsWith('.failed') || kind === 'turn.failed') lastFailure = message;
+        if (kind === 'error' || kind.endsWith('.failed') || kind === 'turn.failed') {
+          lastFailure = message;
+          turnFailure = message;
+        }
         eventCount += 1;
         if (!/^(?:in_progress|completed|started|codex_event)$/i.test(message.trim())) {
           callbacks.onEvent(kind, message.slice(0, 1800), {sequence: eventCount, ...(itemType ? {itemType} : {})});
@@ -1906,6 +1916,7 @@ export class CodexRunner {
           break;
         }
         turn += 1;
+        turnFailure = '';
         const isResume = Boolean(threadId);
         if (isResume) {
           callbacks.onEvent(
@@ -2014,12 +2025,28 @@ export class CodexRunner {
           job.replicaMode,
         );
         const goalAfterTurn = threadId ? readCodexGoalSnapshot(threadId) : null;
+        const transientFailure = isTransientCodexFailure(turnFailure);
         if (durationConstraintFailure) {
           callbacks.onEvent('codex_terminal_blocked', durationConstraintFailure, {
             reason: 'duration_constraint',
             requestedDurationSeconds: job.durationSeconds,
           });
           terminalError = new Error(durationConstraintFailure);
+        } else if (
+          transientFailure &&
+          transientFreshStartCount < 3 &&
+          (!threadId || goalAfterTurn?.status === 'blocked')
+        ) {
+          transientFreshStartCount += 1;
+          callbacks.onEvent(
+            'codex_transient_restart',
+            `Codex 服务临时中断，保留全部工作区检查点并启动新的恢复上下文（${transientFreshStartCount}/3）`,
+            {reason: 'transient_service_failure', detail: turnFailure.slice(0, 500)},
+          );
+          threadId = '';
+          rmSync(threadIdPath, {force: true});
+          await new Promise((resolve) => setTimeout(resolve, 5000 * transientFreshStartCount));
+          continue;
         } else if (goalAfterTurn?.status === 'blocked') {
           const message = 'Codex Goal 已阻塞，未生成完整成片；请查看任务日志中的必要告警';
           callbacks.onEvent('codex_terminal_blocked', message, {reason: 'goal_blocked'});
