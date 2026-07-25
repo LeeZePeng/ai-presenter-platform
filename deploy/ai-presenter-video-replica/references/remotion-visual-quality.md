@@ -82,6 +82,7 @@ When the user selects `真人主画面·悬浮组件`, treat it as an explicit c
 - During continuous review, record every timing mismatch, repetitive stretch, decoder flash, stale caption, awkward cut, frozen demonstration, and unmotivated animation. Fix the composition and review the complete proxy again.
 - `visual_review.json` records `continuousReviewCompleted`, `continuousReviewDurationSeconds`, and `continuousReviewIssues`. Approval is invalid when the full proxy was not watched.
 - For 9:16 delivery of 16:9 source evidence, use a full-width semantic crop or controlled pan occupying roughly 45-55% of frame height. A small centered landscape card with large empty bands is not phone-readable evidence.
+- When the source has no baked subtitles, watermark, or old presenter, start with `sourceContentBounds=[0,0,1,1]` and preserve the complete semantic frame. Use `contain`-equivalent sizing plus a quiet solid/gradient extension for unused vertical space; do not use `cover`, horizontal panning, or a slow zoom that cuts off browser edges, controls, charts, or results. Crop only after a real review frame proves that every discussed element remains visible.
 
 ## 9. Required implementation evidence
 

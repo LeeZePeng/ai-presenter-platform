@@ -113,6 +113,8 @@ describe('buildCodexPrompt', () => {
     expect(prompt).toContain('超过 120 秒时禁止调用 @remotion/fonts 的 loadFont');
     expect(prompt).toContain('delayRender');
     expect(prompt).toContain('禁止把完整横屏缩在居中的小卡片里');
+    expect(prompt).toContain('sourceContentBounds 默认必须是 [0,0,1,1]');
+    expect(prompt).toContain('禁止用 cover、水平平移或轻微放大吃掉网页左右边缘');
     expect(prompt).toContain('Remotion 4.0.490');
     expect(prompt).toContain('严禁改用 FFmpeg drawtext/drawbox');
     expect(prompt).toContain('禁止为追逐 ffprobe 平均码率反复重编码');
