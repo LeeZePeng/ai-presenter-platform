@@ -19,6 +19,22 @@ ANSI_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 FRAME_PATTERN = re.compile(r"\b(Rendered|Encoded)\s+(\d+)\s*/\s*(\d+)", re.IGNORECASE)
 
 
+def concurrency_attempts(requested: int, fallbacks: list[int], available_cpus: int | None = None) -> list[int]:
+    """Clamp declared render concurrency to what Remotion can actually accept.
+
+    Remotion rejects values above the host's logical CPU count before rendering a
+    frame.  Clamping here avoids a guaranteed failed attempt while retaining the
+    caller's ordered fallback policy.
+    """
+    cpu_limit = max(1, int(available_cpus or os.cpu_count() or requested))
+    attempts: list[int] = []
+    for value in [requested, *fallbacks]:
+        effective = min(int(value), cpu_limit)
+        if effective > 0 and effective not in attempts:
+            attempts.append(effective)
+    return attempts
+
+
 def atomic_json(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
@@ -128,6 +144,8 @@ def progress_state(args: argparse.Namespace, state: str, **changes: Any) -> dict
         "startedAt": args.started_at,
         "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
         "outputPath": str(args.output.resolve()),
+        "requestedConcurrency": args.concurrency,
+        "availableCpus": args.available_cpus,
         "concurrency": args.active_concurrency,
         "crf": args.crf,
         "scale": args.scale,
@@ -411,7 +429,9 @@ def main() -> int:
     args.progress = args.progress.expanduser().resolve()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.started_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    args.active_concurrency = args.concurrency
+    args.available_cpus = max(1, os.cpu_count() or args.concurrency)
+    attempts = concurrency_attempts(args.concurrency, args.fallback_concurrency, args.available_cpus)
+    args.active_concurrency = attempts[0]
     args.attempt = 0
     signal.signal(signal.SIGTERM, terminate_child)
     signal.signal(signal.SIGINT, terminate_child)
@@ -443,10 +463,6 @@ def main() -> int:
         raw_output = args.output
         raw_metadata = existing
     else:
-        attempts = []
-        for value in [args.concurrency, *args.fallback_concurrency]:
-            if value > 0 and value not in attempts:
-                attempts.append(value)
         errors = []
         for concurrency in attempts:
             try:
