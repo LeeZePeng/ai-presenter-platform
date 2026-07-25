@@ -99,7 +99,14 @@ def safe_http_error(error: urllib.error.HTTPError) -> RuntimeError:
                 detail = str(payload.get('message') or payload.get('code') or detail)
         except json.JSONDecodeError:
             pass
-    return RuntimeError(f'DashScope Qwen TTS failed with HTTP {error.code}: {detail[:500] or error.reason}')
+    raw_detail = detail[:500] or str(error.reason)
+    guidance = {
+        400: '请求参数不符合百炼要求，请检查参考音频、逐字稿、语言和模型名称',
+        401: '百炼 API Key 无效或已失效，请重新创建并配置 DASHSCOPE_API_KEY',
+        403: '百炼账户无权调用该模型；常见原因是账户欠费、可用额度小于 0、模型尚未开通或业务空间权限不足',
+        429: '百炼调用频率或额度已用尽，请稍后重试或提升限额',
+    }.get(error.code, '百炼云端语音服务调用失败')
+    return RuntimeError(f'{guidance}（HTTP {error.code}：{raw_detail}）')
 
 
 def post_json(server: str, suffix: str, payload: dict[str, object], timeout: int) -> dict[str, object]:

@@ -15,6 +15,28 @@ afterEach(() => {
 });
 
 describe('qwen_cloud_tts.py', () => {
+  it('turns cloud authorization failures into an actionable Chinese error', async () => {
+    const script = path.resolve('deploy/ai-presenter-video-replica/scripts/qwen_cloud_tts.py');
+    const pythonTest = `
+import importlib.util, io, sys, urllib.error
+spec = importlib.util.spec_from_file_location('qwen_cloud_tts', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+error = urllib.error.HTTPError(
+    'https://dashscope.example/api/v1',
+    403,
+    'Forbidden',
+    {},
+    io.BytesIO(b'{"message":"Access to model denied"}'),
+)
+message = str(module.safe_http_error(error))
+assert '百炼账户无权调用该模型' in message
+assert '账户欠费' in message
+assert 'HTTP 403' in message
+`;
+    await execFileAsync('python3', ['-c', pythonTest, script]);
+  });
+
   it('enrolls the exact reference with managed Qwen VC and reuses the returned voice for synthesis', async () => {
     const directory = mkdtempSync(path.join(os.tmpdir(), 'qwen-cloud-client-'));
     temporaryDirectories.push(directory);
