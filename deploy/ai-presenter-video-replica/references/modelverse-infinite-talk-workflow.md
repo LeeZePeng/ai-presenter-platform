@@ -125,7 +125,7 @@ Use `--audio2-mode same` only if the server rejects `audio2=None`. Passing the s
 
 ### Long Audio: Segmented and Resumable
 
-Do not send narration longer than 20 seconds through one `submit`. Long requests retain too much system memory and can crash Gradio/ComfyUI near the end, losing the entire render. Use sequential checkpoints instead:
+Do not send narration longer than 20 seconds through one `submit`. Long requests retain too much system memory and can crash Gradio/ComfyUI near the end, losing the entire render. First plan only the cues where a presenter will be visible, then use resumable checkpoints:
 
 ```bash
 scripts/infinite_talk_api.py segmented-submit \
@@ -134,17 +134,18 @@ scripts/infinite_talk_api.py segmented-submit \
   --person-img out/infinite_talk/assets/person_ref.png \
   --ref-video out/infinite_talk/assets/ref_vid_5s_832x480.mp4 \
   --audio out/final_narration.wav \
+  --segment-plan out/analysis/presenter_plan.json \
+  --segments-only \
   --checkpoint-dir out/checkpoints/infinite_talk \
-  --output-video out/checkpoints/infinite_talk/presenter.mp4 \
   --width 832 --height 480 \
   --hd-enabled --hd-res 720 \
   --steps 4 --blocks-to-swap 0 --frame-size 81 \
   --segment-seconds 19.5 --max-segment-seconds 20 --poll-seconds 10 --max-polls 240
 ```
 
-The helper probes the audio, prefers silence-adjacent boundaries around 19.5 seconds, caps each request at 20 seconds, and runs segments serially. This reduces request count without risking the long-request memory failures observed above 20 seconds. Each segment directory contains its audio slice, downloaded MP4, and original `result.json`. `segments.json` records the plan and completed paths.
+Create `out/analysis/presenter_plan.json` with `plan_selective_presenter.py` before the command. The helper validates that every requested interval is non-overlapping and at most 20 seconds. Repeat `--worker SERVER_URL,COMFY_URL` for each healthy GPU endpoint to process independent intervals concurrently. A pending prompt stays pinned to its original worker, while completed checkpoints are reused. Each segment directory contains its audio slice, downloaded MP4, and original `result.json`; `segments.json` records the exact sparse plan, plan hash, worker assignment, and completed paths.
 
-Retry with exactly the same command and checkpoint directory. Valid segments are skipped, including checkpoints copied to a new job workspace. The stitched presenter uses the untouched original narration as its final audio, avoiding audio gaps at cut points.
+Retry with exactly the same command, presenter plan, and checkpoint directory. Valid segments are skipped, including checkpoints copied to a new job workspace. After normalization/upscale, use `prepare_selective_presenter_track.py` to place the generated clips at their original narration timestamps and insert black gaps for evidence intervals. Remotion mounts that track once and uses `presenterVisibleRanges` for visibility.
 
 For final validation, expose these fields in the job result manifest:
 

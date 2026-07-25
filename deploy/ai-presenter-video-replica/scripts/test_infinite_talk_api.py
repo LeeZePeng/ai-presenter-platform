@@ -196,5 +196,45 @@ class WorkerPoolTest(unittest.TestCase):
             MODULE.parse_workers(args)
 
 
+class SelectiveSegmentPlanTest(unittest.TestCase):
+    def test_loads_sparse_non_overlapping_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "presenter-plan.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "segment_plan": [
+                            {"index": 1, "start": 0, "duration": 12},
+                            {"index": 2, "start": 42, "duration": 18.5},
+                        ]
+                    }
+                )
+            )
+            self.assertEqual(MODULE.load_segment_plan(path, 70, 20), [(0.0, 12.0), (42.0, 18.5)])
+
+    def test_rejects_overlapping_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "presenter-plan.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "segment_plan": [
+                            {"index": 1, "start": 0, "duration": 12},
+                            {"index": 2, "start": 11, "duration": 5},
+                        ]
+                    }
+                )
+            )
+            with self.assertRaises(SystemExit):
+                MODULE.load_segment_plan(path, 70, 20)
+
+    def test_rejects_segment_longer_than_service_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "presenter-plan.json"
+            path.write_text(json.dumps({"segment_plan": [{"index": 1, "start": 0, "duration": 20.1}]}))
+            with self.assertRaises(SystemExit):
+                MODULE.load_segment_plan(path, 70, 20)
+
+
 if __name__ == "__main__":
     unittest.main()

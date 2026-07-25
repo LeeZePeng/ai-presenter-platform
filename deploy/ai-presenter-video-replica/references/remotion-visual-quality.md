@@ -44,6 +44,7 @@ For topic or script jobs, derive the same fields from the requested style and su
 - Write and render `out/analysis/caption_timeline.json`; require at least 95% bidirectional normalized text coverage against the final script.
 - Use phrase-level captions, normally 1.2-4.5 seconds and never over 6 seconds. Keep them within two rendered lines.
 - Mark the actual caption container `data-caption-layer="narration-timeline"`.
+- Precompute caption `pages` with `prepare_caption_pages.py` and render those pages directly. Runtime substring slicing is forbidden because it can split protected names such as `Mythos 5` or detach punctuation from the spoken phrase.
 - Cue headings, summaries, chapter labels, and keywords are visual copy, not captions. They may never replace the words currently being spoken.
 - Internal production labels such as “原生图解”, “数字人口播”, “动态证据”, cue numbers, review status, and renderer/method names must never appear in the delivered frame. Replace them with source-grounded content language or remove the layer.
 
@@ -114,12 +115,13 @@ Fail before delivery when any of these is true:
 - decoration crosses semantic content above 8% opacity, or an ungrounded bottom summary duplicates the complete caption layer;
 - subtitles are stale, summarized, clipped, or absent;
 - PPT/source visuals describe the previous or next spoken phrase;
-- the presenter is duplicated, stretched, hidden, or blocks captions or primary UI;
+- a declared presenter-led cue hides the presenter, duplicates or stretches it, or lets it block captions or primary UI;
 - the final result uses full-frame screenshots, generic persistent chrome, or static-card swaps.
 - a planned source-video evidence cue is replaced by a still, carries original audio, exposes a watermark/old subtitle, or duplicates the presenter;
 - a source-video evidence cue omits `evidenceBounds`, hides relevant content, or remains unreadable at normal playback size;
 - a demonstration, generated result, comparison, or product operation is replaced by abstract cards;
-- a setup/method/score/conclusion cue uses `source_video_pip`, or a non-evidence cue does not keep the InfiniteTalk presenter continuously visible;
+- a setup/method/score/conclusion cue uses `source_video_pip`, or a declared presenter-led non-evidence cue does not keep the InfiniteTalk presenter continuously visible;
+- the generated presenter intervals do not match `presenterVisibleRanges`, or paid lip sync was generated for source-evidence intervals that hide the presenter;
 - the opening has no visible hook, long sections have no meaningful visual beats, or the closing sentence is cut off merely to increase pace.
 - the presenter-primary style uses a stretched square asset, lacks `data-layout-style="presenter-primary-floating-ui"`, or lets floating components cover the face, mouth, hands, or captions.
 

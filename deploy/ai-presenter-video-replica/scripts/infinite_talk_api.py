@@ -8,6 +8,7 @@ import copy
 import concurrent.futures
 import hashlib
 import json
+import math
 import mimetypes
 import queue
 import random
@@ -513,6 +514,39 @@ def plan_segments(
     ]
 
 
+def load_segment_plan(path: Path, narration_duration: float, max_seconds: float) -> list[tuple[float, float]]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise SystemExit(f"Cannot read presenter segment plan: {path}: {error}") from error
+    raw_plan = value.get("segment_plan") if isinstance(value, dict) else None
+    if not isinstance(raw_plan, list) or not raw_plan:
+        raise SystemExit("Presenter segment plan must contain a non-empty segment_plan array")
+    segments: list[tuple[float, float]] = []
+    previous_end = 0.0
+    for position, raw in enumerate(raw_plan, start=1):
+        if not isinstance(raw, dict) or int(raw.get("index", position)) != position:
+            raise SystemExit("Presenter segment plan indices must be one-based and contiguous")
+        try:
+            start = float(raw["start"])
+            duration = float(raw["duration"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise SystemExit(f"Presenter segment {position} needs numeric start and duration") from error
+        end = start + duration
+        if (
+            not all(math.isfinite(number) for number in (start, duration, end))
+            or start < 0
+            or duration <= 0.05
+            or duration > max_seconds + 0.001
+            or start < previous_end - 0.001
+            or end > narration_duration + 0.5
+        ):
+            raise SystemExit(f"Presenter segment {position} is outside the narration or overlaps another segment")
+        segments.append((round(start, 3), round(duration, 3)))
+        previous_end = end
+    return segments
+
+
 def valid_video(path: Path, expected_dimensions: tuple[int, int] | None = None) -> bool:
     if not path.exists() or path.stat().st_size <= 1024:
         return False
@@ -688,6 +722,12 @@ def segmented_submit(args: argparse.Namespace) -> dict:
     previous_hd_enabled = existing_manifest.get("hd_enabled")
     previous_hd_res = existing_manifest.get("hd_res")
     previous_requested_dimensions = existing_manifest.get("requested_dimensions")
+    segment_plan_path = getattr(args, "segment_plan", None)
+    segment_plan_path = segment_plan_path.resolve() if segment_plan_path else None
+    segment_plan_sha256 = file_sha256(segment_plan_path) if segment_plan_path else None
+    previous_segment_plan_sha256 = existing_manifest.get("segment_plan_sha256")
+    if previous_segment_plan_sha256 and previous_segment_plan_sha256 != segment_plan_sha256:
+        raise SystemExit("Checkpoint presenter plan differs from the current plan; use a new checkpoint directory")
     requested_dimensions_value = {"width": int(args.width), "height": int(args.height)}
     if previous_hd_enabled is not None and bool(previous_hd_enabled) != bool(args.hd_enabled):
         raise SystemExit("Checkpoint HD mode differs from the current request; use a new checkpoint directory")
@@ -700,13 +740,29 @@ def segmented_submit(args: argparse.Namespace) -> dict:
         if args.seed != -1
         else int(existing_manifest.get("seed") or random.SystemRandom().randint(1, 2**31 - 1))
     )
-    segments = plan_segments(
-        duration,
-        preferred_seconds=args.segment_seconds,
-        min_seconds=args.min_segment_seconds,
-        max_seconds=args.max_segment_seconds,
-        silence_points=detect_silence_points(args.audio),
+    segments = (
+        load_segment_plan(segment_plan_path, duration, args.max_segment_seconds)
+        if segment_plan_path
+        else plan_segments(
+            duration,
+            preferred_seconds=args.segment_seconds,
+            min_seconds=args.min_segment_seconds,
+            max_seconds=args.max_segment_seconds,
+            silence_points=detect_silence_points(args.audio),
+        )
     )
+    previous_plan = existing_manifest.get("segment_plan")
+    canonical_plan = [
+        {"index": index + 1, "start": start, "duration": segment_duration}
+        for index, (start, segment_duration) in enumerate(segments)
+    ]
+    if previous_plan and previous_plan != canonical_plan:
+        raise SystemExit("Checkpoint segment intervals differ from the current plan; use a new checkpoint directory")
+    segments_only = bool(getattr(args, "segments_only", False))
+    if segments_only and not segment_plan_path:
+        raise SystemExit("--segments-only requires --segment-plan so timeline gaps are explicit")
+    if not segments_only and not getattr(args, "output_video", None):
+        raise SystemExit("--output-video is required unless --segments-only is set")
     workers = parse_workers(args)
     requested_dimensions = (int(args.width), int(args.height))
     expected_dimensions = expected_output_dimensions(args)
@@ -722,15 +778,16 @@ def segmented_submit(args: argparse.Namespace) -> dict:
             "audio": str(args.audio.resolve()),
             "duration_seconds": duration,
             "audio_sha256": audio_sha256,
+            "timeline_duration_seconds": duration,
+            "sparse_timeline": bool(segment_plan_path),
+            "segment_plan_path": str(segment_plan_path) if segment_plan_path else None,
+            "segment_plan_sha256": segment_plan_sha256,
             "seed": seed,
             "requested_dimensions": {"width": requested_dimensions[0], "height": requested_dimensions[1]},
             "expected_output_dimensions": {"width": expected_dimensions[0], "height": expected_dimensions[1]},
             "hd_enabled": bool(args.hd_enabled),
             "hd_res": int(args.hd_res),
-            "segment_plan": [
-                {"index": index + 1, "start": start, "duration": segment_duration}
-                for index, (start, segment_duration) in enumerate(segments)
-            ],
+            "segment_plan": canonical_plan,
             "worker_count": len(workers),
             "workers": [{"server": server, "comfy_server": comfy} for server, comfy in workers],
             "completed_segments": len(ordered),
@@ -739,7 +796,8 @@ def segmented_submit(args: argparse.Namespace) -> dict:
             "segmentAudioSha256s": [str(record["audio_sha256"]) for record in ordered],
             "segmentVideoSha256s": [str(record["video_sha256"]) for record in ordered],
             "promptIds": [str(record["prompt_id"]) for record in ordered],
-            "output": str(args.output_video.resolve()),
+            "segments_only": segments_only,
+            "output": str(args.output_video.resolve()) if args.output_video else None,
         }
         temporary_manifest = manifest_path.with_name(f".{manifest_path.name}.tmp")
         temporary_manifest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2))
@@ -962,17 +1020,18 @@ def segmented_submit(args: argparse.Namespace) -> dict:
         raise SystemExit("InfiniteTalk segments returned duplicate videos")
     segment_videos = [Path(str(record["video"])) for record in ordered_records]
 
-    stitch_segments(
-        segment_videos,
-        segments,
-        args.audio,
-        args.output_video,
-        expected_dimensions[0],
-        expected_dimensions[1],
-        args.fps,
-    )
-    if not valid_video(args.output_video):
-        raise SystemExit("Segment stitching did not produce a valid MP4")
+    if not segments_only:
+        stitch_segments(
+            segment_videos,
+            segments,
+            args.audio,
+            args.output_video,
+            expected_dimensions[0],
+            expected_dimensions[1],
+            args.fps,
+        )
+        if not valid_video(args.output_video):
+            raise SystemExit("Segment stitching did not produce a valid MP4")
     write_manifest()
     return json.loads(manifest_path.read_text())
 
@@ -1407,7 +1466,17 @@ def main() -> int:
     segmented_parser.add_argument("--ref-video", type=Path, required=True)
     segmented_parser.add_argument("--audio", type=Path, required=True)
     segmented_parser.add_argument("--checkpoint-dir", type=Path, required=True)
-    segmented_parser.add_argument("--output-video", type=Path, required=True)
+    segmented_parser.add_argument("--output-video", type=Path)
+    segmented_parser.add_argument(
+        "--segment-plan",
+        type=Path,
+        help="JSON presenter plan; generate only its non-overlapping segment_plan intervals",
+    )
+    segmented_parser.add_argument(
+        "--segments-only",
+        action="store_true",
+        help="Preserve generated clips without stitching timeline gaps into one continuous video",
+    )
     segmented_parser.add_argument("--segment-seconds", type=float, default=19.5)
     segmented_parser.add_argument("--min-segment-seconds", type=float, default=8)
     segmented_parser.add_argument("--max-segment-seconds", type=float, default=20)
