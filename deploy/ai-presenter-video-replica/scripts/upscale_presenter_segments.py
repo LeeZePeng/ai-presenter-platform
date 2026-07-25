@@ -7,8 +7,8 @@ import hashlib
 import json
 import math
 import mimetypes
+import queue
 import subprocess
-import threading
 import time
 import urllib.parse
 import urllib.request
@@ -301,6 +301,32 @@ def upscale_one(source: Path, index: int, server: str, args: argparse.Namespace)
     return receipt
 
 
+def run_upscale_jobs(inputs: list[Path], servers: list[str], args: argparse.Namespace) -> list[dict]:
+    """Keep every healthy GPU busy instead of pinning segments to a fixed worker.
+
+    Segment durations vary, so modulo assignment leaves fast workers idle behind a
+    slow worker's backlog. An availability queue lets the next segment go to the
+    first worker that finishes while still enforcing one active segment per GPU.
+    """
+    available_workers: queue.Queue[str] = queue.Queue()
+    for server in servers:
+        available_workers.put(server)
+
+    def process(index_and_source: tuple[int, Path]) -> dict:
+        index, source = index_and_source
+        server = available_workers.get()
+        try:
+            return upscale_one(source, index, server, args)
+        finally:
+            available_workers.put(server)
+
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=min(len(inputs), len(servers)),
+        thread_name_prefix="presenter-upscale",
+    ) as executor:
+        return list(executor.map(process, enumerate(inputs, start=1)))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Upscale presenter videos in resumable ComfyUI chunks")
     parser.add_argument("--server", action="append", required=True, dest="servers")
@@ -323,19 +349,7 @@ def main() -> int:
     if args.chunk_seconds <= 0 or args.per_batch <= 0:
         parser.error("chunk and batch settings must be positive")
 
-    worker_locks = [threading.Lock() for _ in args.servers]
-
-    def process(index_and_source: tuple[int, Path]) -> dict:
-        index, source = index_and_source
-        worker_index = (index - 1) % len(args.servers)
-        with worker_locks[worker_index]:
-            return upscale_one(source, index, args.servers[worker_index], args)
-
-    with concurrent.futures.ThreadPoolExecutor(
-        max_workers=min(len(args.inputs), len(args.servers)),
-        thread_name_prefix="presenter-upscale",
-    ) as executor:
-        receipts = list(executor.map(process, enumerate(args.inputs, start=1)))
+    receipts = run_upscale_jobs(args.inputs, args.servers, args)
     manifest = {
         "version": 1,
         "provider": "ComfyUI",
