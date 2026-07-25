@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import fcntl
 import hashlib
 import json
 import math
 import mimetypes
+import os
 import queue
 import subprocess
 import time
@@ -14,6 +16,28 @@ import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
+from typing import TextIO
+
+
+def acquire_run_lock(checkpoint_dir: Path) -> TextIO:
+    """Prevent two resumptions from submitting the same missing chunks."""
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = checkpoint_dir / ".upscale.lock"
+    lock = lock_path.open("a+", encoding="utf-8")
+    try:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as error:
+        lock.seek(0)
+        owner = lock.read().strip()
+        lock.close()
+        detail = f" ({owner})" if owner else ""
+        raise RuntimeError(f"Presenter upscale already running for {checkpoint_dir}{detail}") from error
+    lock.seek(0)
+    lock.truncate()
+    lock.write(json.dumps({"pid": os.getpid(), "startedAt": time.time()}))
+    lock.flush()
+    os.fsync(lock.fileno())
+    return lock
 
 
 def sha256(path: Path) -> str:
@@ -361,17 +385,22 @@ def main() -> int:
     if args.chunk_seconds <= 0 or args.per_batch <= 0 or args.segment_retries < 0 or args.retry_backoff_seconds < 0:
         parser.error("chunk and batch settings must be positive")
 
-    receipts = run_upscale_jobs(args.inputs, args.servers, args)
-    manifest = {
-        "version": 1,
-        "provider": "ComfyUI",
-        "model": args.model,
-        "presenterRenderPaths": [receipt["outputPath"] for receipt in receipts],
-        "receipts": receipts,
-    }
-    args.manifest.parent.mkdir(parents=True, exist_ok=True)
-    args.manifest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps(manifest, ensure_ascii=False))
+    run_lock = acquire_run_lock(args.checkpoint_dir.resolve())
+    try:
+        receipts = run_upscale_jobs(args.inputs, args.servers, args)
+        manifest = {
+            "version": 1,
+            "provider": "ComfyUI",
+            "model": args.model,
+            "presenterRenderPaths": [receipt["outputPath"] for receipt in receipts],
+            "receipts": receipts,
+        }
+        args.manifest.parent.mkdir(parents=True, exist_ok=True)
+        args.manifest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(json.dumps(manifest, ensure_ascii=False))
+    finally:
+        fcntl.flock(run_lock.fileno(), fcntl.LOCK_UN)
+        run_lock.close()
     return 0
 
 

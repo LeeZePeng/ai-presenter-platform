@@ -6,6 +6,30 @@ import {describe, it} from 'vitest';
 const execFileAsync = promisify(execFile);
 
 describe('upscale_presenter_segments.py', () => {
+  it('rejects a second process for the same checkpoint directory', async () => {
+    const script = path.resolve('deploy/ai-presenter-video-replica/scripts/upscale_presenter_segments.py');
+    const pythonTest = `
+import importlib.util, pathlib, sys, tempfile
+
+spec = importlib.util.spec_from_file_location('upscale_presenter_segments', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+with tempfile.TemporaryDirectory() as temporary:
+    checkpoint = pathlib.Path(temporary)
+    first = module.acquire_run_lock(checkpoint)
+    try:
+        try:
+            module.acquire_run_lock(checkpoint)
+            raise AssertionError('second lock unexpectedly succeeded')
+        except RuntimeError as error:
+            assert 'already running' in str(error), error
+    finally:
+        module.fcntl.flock(first.fileno(), module.fcntl.LOCK_UN)
+        first.close()
+`;
+    await execFileAsync('python3', ['-c', pythonTest, script]);
+  });
+
   it('gives the next segment to the first available GPU instead of fixed modulo assignment', async () => {
     const script = path.resolve('deploy/ai-presenter-video-replica/scripts/upscale_presenter_segments.py');
     const pythonTest = `
