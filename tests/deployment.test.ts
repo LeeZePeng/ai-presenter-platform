@@ -55,6 +55,49 @@ describe('DeploymentManager', () => {
     expect(() => new DeploymentManager(options).trigger(2)).toThrow('仍有排队或运行中的任务');
   });
 
+  it('persists a deferred deployment until active jobs are finished', () => {
+    const {options} = fixture(true);
+    const manager = new DeploymentManager(options);
+    expect(manager.trigger(2, true)).toMatchObject({
+      status: 'queued',
+      stage: '等待任务完成',
+      pid: null,
+    });
+    expect(manager.tick(1)).toMatchObject({status: 'queued', stage: '等待任务完成', pid: null});
+    expect(manager.tick(0)).toMatchObject({status: 'queued', stage: '等待发布进程'});
+  });
+
+  it('does not expire a deferred deployment while a long job is still running', () => {
+    const {options} = fixture(true);
+    mkdirSync(path.dirname(options.stateFile), {recursive: true});
+    writeFileSync(options.stateFile, JSON.stringify({
+      status: 'queued',
+      stage: '等待任务完成',
+      message: '等待长任务',
+      commit: null,
+      previousCommit: null,
+      requestedAt: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
+      startedAt: null,
+      completedAt: null,
+      pid: null,
+    }));
+    expect(new DeploymentManager(options).snapshot()).toMatchObject({
+      status: 'queued',
+      stage: '等待任务完成',
+    });
+  });
+
+  it('allows an administrator to cancel a deferred deployment', () => {
+    const {options} = fixture(true);
+    const manager = new DeploymentManager(options);
+    manager.trigger(1, true);
+    expect(manager.cancelQueued()).toMatchObject({
+      status: 'idle',
+      stage: '自动发布已取消',
+      pid: null,
+    });
+  });
+
   it('rejects a second deployment represented by persisted running state', () => {
     const {options} = fixture(true);
     mkdirSync(path.dirname(options.stateFile), {recursive: true});

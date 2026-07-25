@@ -119,9 +119,67 @@ export class DeploymentManager {
     };
   }
 
-  trigger(activeJobs: number): DeploymentSnapshot {
+  trigger(activeJobs: number, deferIfBusy = false): DeploymentSnapshot {
+    this.assertReady();
+    const current = this.reconciledState();
+    if (current.status === 'queued' || current.status === 'running') {
+      throw Object.assign(new Error('已有发布正在进行'), {status: 409});
+    }
+    const requestedAt = new Date().toISOString();
+    if (activeJobs > 0) {
+      if (!deferIfBusy) throw Object.assign(new Error('仍有排队或运行中的任务，暂不能部署'), {status: 409});
+      this.writeState({
+        ...current,
+        status: 'queued',
+        stage: '等待任务完成',
+        message: `已预约自动发布；等待 ${activeJobs} 个任务结束`,
+        requestedAt,
+        startedAt: null,
+        completedAt: null,
+        pid: null,
+      });
+      return this.snapshot();
+    }
+    return this.startDeployment(current, requestedAt);
+  }
+
+  tick(activeJobs: number): DeploymentSnapshot {
+    const current = this.reconciledState();
+    if (current.status !== 'queued' || current.stage !== '等待任务完成' || activeJobs > 0) {
+      return this.snapshot();
+    }
+    try {
+      this.assertReady();
+      return this.startDeployment(current, current.requestedAt ?? new Date().toISOString());
+    } catch (error) {
+      this.writeState({
+        ...current,
+        status: 'failed',
+        stage: '自动发布启动失败',
+        message: error instanceof Error ? error.message : String(error),
+        completedAt: new Date().toISOString(),
+        pid: null,
+      });
+      return this.snapshot();
+    }
+  }
+
+  cancelQueued(): DeploymentSnapshot {
+    const current = this.reconciledState();
+    if (current.status !== 'queued' || current.stage !== '等待任务完成' || current.pid !== null) {
+      throw Object.assign(new Error('没有可取消的待任务完成发布'), {status: 409});
+    }
+    this.writeState({
+      ...emptyState(),
+      stage: '自动发布已取消',
+      message: '管理员已取消任务结束后的自动发布',
+      completedAt: new Date().toISOString(),
+    });
+    return this.snapshot();
+  }
+
+  private assertReady(): void {
     if (!this.options.enabled) throw Object.assign(new Error('一键部署尚未在服务器启用'), {status: 503});
-    if (activeJobs > 0) throw Object.assign(new Error('仍有排队或运行中的任务，暂不能部署'), {status: 409});
     if (!existsSync(this.options.script)) throw Object.assign(new Error('服务器部署脚本不存在'), {status: 503});
     if (!existsSync(path.join(this.options.repoDir, '.git'))) {
       throw Object.assign(new Error('服务器部署仓库尚未初始化'), {status: 503});
@@ -133,19 +191,17 @@ export class DeploymentManager {
     if (path.resolve(this.options.repoDir) === path.resolve(this.options.targetDir)) {
       throw Object.assign(new Error('部署 checkout 与生产目录必须分离'), {status: 503});
     }
-    const current = this.reconciledState();
-    if (current.status === 'queued' || current.status === 'running') {
-      throw Object.assign(new Error('已有发布正在进行'), {status: 409});
-    }
+  }
 
-    const requestedAt = new Date().toISOString();
+  private startDeployment(current: DeploymentState, requestedAt: string): DeploymentSnapshot {
+    const startedAt = new Date().toISOString();
     const queued: DeploymentState = {
       ...current,
       status: 'queued',
       stage: '等待发布进程',
       message: `准备发布 ${this.options.remote}/${this.options.branch}`,
       requestedAt,
-      startedAt: null,
+      startedAt,
       completedAt: null,
       pid: null,
     };
@@ -206,10 +262,12 @@ export class DeploymentManager {
 
   private reconciledState(): DeploymentState {
     const current = parseState(this.options.stateFile);
+    const queuedSince = current.startedAt ?? current.requestedAt;
     const queuedTooLong =
       current.status === 'queued' &&
-      current.requestedAt &&
-      Date.now() - new Date(current.requestedAt).getTime() > 5 * 60 * 1000;
+      current.stage !== '等待任务完成' &&
+      queuedSince &&
+      Date.now() - new Date(queuedSince).getTime() > 5 * 60 * 1000;
     const runnerExited = current.status === 'running' && current.pid !== null && !processIsAlive(current.pid);
     if (!queuedTooLong && !runnerExited) return current;
     const failed: DeploymentState = {

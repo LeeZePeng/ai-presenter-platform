@@ -324,12 +324,33 @@ export const AdminApp = () => {
 
   const deployRelease = async () => {
     if (!deployment) return;
-    if (!window.confirm(`确认把 ${deployment.remote}/${deployment.branch} 的最新代码发布到生产环境？发布前会自动执行检查和备份。`)) return;
+    const activeJobs = system?.queue.total ?? 0;
+    const confirmation = activeJobs > 0
+      ? `当前还有 ${activeJobs} 个任务。确认预约自动发布？系统会等待队列清空后再检查、备份并发布 ${deployment.remote}/${deployment.branch}。`
+      : `确认把 ${deployment.remote}/${deployment.branch} 的最新代码发布到生产环境？发布前会自动执行检查和备份。`;
+    if (!window.confirm(confirmation)) return;
     setAction('deploy');
     try {
       const next = await api<DeploymentSnapshot>('/api/admin/deployment', {
         method: 'POST',
-        body: JSON.stringify({confirmation: 'DEPLOY'}),
+        body: JSON.stringify({confirmation: 'DEPLOY', defer: activeJobs > 0}),
+      });
+      setDeployment(next);
+      setError('');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setAction('');
+    }
+  };
+
+  const cancelQueuedDeployment = async () => {
+    if (!window.confirm('确认取消任务结束后的自动发布？当前生成任务不会受到影响。')) return;
+    setAction('cancel-deploy');
+    try {
+      const next = await api<DeploymentSnapshot>('/api/admin/deployment', {
+        method: 'DELETE',
+        body: JSON.stringify({confirmation: 'CANCEL_DEPLOY'}),
       });
       setDeployment(next);
       setError('');
@@ -541,15 +562,18 @@ export const AdminApp = () => {
                 <div className="deployment-actions">
                   <button
                     className="primary"
-                    disabled={!deployment?.enabled || Boolean(action) || ['queued', 'running'].includes(deployment?.status ?? '') || Boolean(system?.queue.total)}
+                    disabled={!deployment?.enabled || Boolean(action) || ['queued', 'running'].includes(deployment?.status ?? '')}
                     onClick={() => void deployRelease()}
                   >
                     {action === 'deploy' || ['queued', 'running'].includes(deployment?.status ?? '') ? <LoaderCircle className="spin" size={17} /> : <Rocket size={17} />}
-                    {['queued', 'running'].includes(deployment?.status ?? '') ? '发布进行中' : '一键部署 main'}
+                    {deployment?.status === 'queued' && deployment.stage === '等待任务完成' ? '已预约自动发布' : ['queued', 'running'].includes(deployment?.status ?? '') ? '发布进行中' : Boolean(system?.queue.total) ? '任务结束后自动发布' : '一键部署 main'}
                   </button>
+                  {deployment?.status === 'queued' && deployment.stage === '等待任务完成' && (
+                    <button className="secondary" disabled={Boolean(action)} onClick={() => void cancelQueuedDeployment()}><X size={17} />取消预约</button>
+                  )}
                   <button className="secondary" disabled={Boolean(action)} onClick={() => void refresh()}><RefreshCw size={17} />刷新状态</button>
                 </div>
-                {Boolean(system?.queue.total) && <small className="deployment-hint">当前有 {system?.queue.total} 个任务，队列清空后才能发布。</small>}
+                {Boolean(system?.queue.total) && deployment?.stage !== '等待任务完成' && <small className="deployment-hint">当前有 {system?.queue.total} 个任务，可预约队列清空后自动发布。</small>}
               </div>
             </section>
 

@@ -81,6 +81,10 @@ const probeImageDimensions = (file: string): {width: number; height: number} => 
 
 const db = new AppDatabase(path.join(config.dataDir, 'platform.sqlite'));
 const deployment = new DeploymentManager(config.deployment);
+const deploymentTicker = setInterval(() => {
+  deployment.tick(db.queueSummary().total);
+}, 5_000);
+deploymentTicker.unref();
 const youtube = new YouTubeService({...config.youtube, importsDir: youtubeImportsDir});
 const controller = config.mockGpu
   ? new MockInstanceController()
@@ -472,13 +476,23 @@ app.post(
   (req, res) => {
     if (req.body?.confirmation !== 'DEPLOY') return res.status(400).json({error: '需要明确确认发布'});
     try {
-      return res.status(202).json(deployment.trigger(db.queueSummary().total));
+      return res.status(202).json(deployment.trigger(db.queueSummary().total, req.body?.defer === true));
     } catch (error) {
       const status = Number((error as {status?: unknown}).status) || 500;
       return res.status(status).json({error: error instanceof Error ? error.message : String(error)});
     }
   },
 );
+
+app.delete('/api/admin/deployment', (req, res) => {
+  if (req.body?.confirmation !== 'CANCEL_DEPLOY') return res.status(400).json({error: '需要明确确认取消发布'});
+  try {
+    return res.json(deployment.cancelQueued());
+  } catch (error) {
+    const status = Number((error as {status?: unknown}).status) || 500;
+    return res.status(status).json({error: error instanceof Error ? error.message : String(error)});
+  }
+});
 
 app.get('/api/admin/jobs', (req, res) => {
   res.json({jobs: db.listJobs(Number(req.query.limit ?? 200)).map((job) => publicJob(job))});
