@@ -859,6 +859,8 @@ launchctl print gui/$(id -u)/com.ai-presenter.cloudflared
 
 第一条验证应用，第二条同时验证 DNS、TLS 和 Tunnel。API 健康仍不代表 GPU、Codex、TTS 或 InfiniteTalk 全链路可用；完整检查还应查看 `/api/admin/dashboard` 的实例状态、`lastPowerError` 和最近任务。
 
+若公网返回 Cloudflare 1033、而本机健康检查正常，并且 Tunnel 日志显示边缘地址为 `198.18.0.x` 后出现 TLS EOF/reset，说明本机代理的 fake-IP DNS 污染了 cloudflared 边缘解析。固定服务必须使用 `--edge-ip-version 4`，并把 `--dns-resolver-addrs 1.1.1.1:53` 放在 `tunnel run` 子命令之后；修改 LaunchAgent 后重新 bootstrap，再同时验证本机和公网健康接口。
+
 ### 14.2 日志
 
 ```bash

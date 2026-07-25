@@ -11,7 +11,11 @@
     <string>--no-autoupdate</string>
     <string>--protocol</string>
     <string>http2</string>
+    <string>--edge-ip-version</string>
+    <string>4</string>
     <string>run</string>
+    <string>--dns-resolver-addrs</string>
+    <string>1.1.1.1:53</string>
     <string>--token-file</string>
     <string>/Users/yshtola/ai-presenter-platform/.cloudflared/token</string>
   </array>
