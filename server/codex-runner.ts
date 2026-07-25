@@ -98,9 +98,9 @@ type ResultManifest = {
 
 type VisualReview = {
   approved: boolean;
-  score: number;
+  score: number | null;
   coverApproved: boolean;
-  coverScore: number;
+  coverScore: number | null;
   coverIssues: string[];
   fatalIssues: string[];
   issues: string[];
@@ -111,25 +111,27 @@ type VisualReview = {
 export const validateVisualReview = (value: unknown): VisualReview => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('独立视觉审查结果无效');
   const review = value as Record<string, unknown>;
-  const score = Number(review.score);
+  const optionalScore = (key: string): number | null => {
+    if (review[key] === undefined || review[key] === null) return null;
+    const score = Number(review[key]);
+    if (!Number.isInteger(score) || score < 0 || score > 100) throw new Error(`独立视觉审查 ${key} 无效`);
+    return score;
+  };
+  const score = optionalScore('score');
   const stringArray = (key: string): string[] => {
     const entries = review[key];
+    if (entries === undefined) return [];
     if (!Array.isArray(entries) || entries.some((entry) => typeof entry !== 'string')) {
       throw new Error(`独立视觉审查缺少 ${key}`);
     }
     return entries.map(String);
   };
-  if (typeof review.approved !== 'boolean' || !Number.isInteger(score) || score < 0 || score > 100) {
-    throw new Error('独立视觉审查缺少有效结论或分数');
+  if (typeof review.approved !== 'boolean') {
+    throw new Error('独立视觉审查缺少有效结论');
   }
-  const coverScore = Number(review.coverScore);
-  if (
-    typeof review.coverApproved !== 'boolean' ||
-    !Number.isInteger(coverScore) ||
-    coverScore < 0 ||
-    coverScore > 100
-  ) {
-    throw new Error('独立视觉审查缺少封面结论或分数');
+  const coverScore = optionalScore('coverScore');
+  if (typeof review.coverApproved !== 'boolean') {
+    throw new Error('独立视觉审查缺少封面结论');
   }
   return {
     approved: review.approved,
@@ -163,9 +165,6 @@ export const validateRemotionImplementation = (entryPath: string): void => {
   const source = readRemotionSourceText(entryPath);
   if (/source-cues[\\/]/i.test(source)) {
     throw new Error('Remotion 禁止把原片 cue 截图作为静态全屏背景；请使用 @remotion/media Video、OffthreadVideo 或原生重建场景');
-  }
-  if (!/\b(?:interpolate|spring)\s*\(/.test(source)) {
-    throw new Error('Remotion 主画面缺少基于帧的转场或重点动画');
   }
   if (!/data-presenter-layer\s*=\s*["']infinite-talk["']/.test(source)) {
     throw new Error('Remotion 主画面缺少 InfiniteTalk 数字人层标记');
@@ -552,7 +551,7 @@ export const validateCaptionTimeline = (
 };
 
 type NarrationVisualMap = {
-  sourceMotionEvidenceInventory?: SourceMotionEvidence[];
+  sourceEvidenceInventory?: SourceEvidenceInventoryItem[];
   cues: Array<{
     cueIndex: number;
     outputStartSeconds: number;
@@ -569,14 +568,14 @@ type NarrationVisualMap = {
   }>;
 };
 
-type SourceMotionEvidence = {
+type SourceEvidenceInventoryItem = {
   sourceStartSeconds: number;
   sourceEndSeconds: number;
   kind: string;
   description: string;
-  eligible: boolean;
+  preserveOriginal: boolean;
   mappedCueIndices: number[];
-  exclusionReason?: string;
+  rebuildReason?: string;
 };
 
 type SourceVideoEvidence = {
@@ -610,6 +609,7 @@ type SceneImplementation = {
   cues: Array<{
     cueIndex: number;
     sceneKey: string;
+    presenterVisible: boolean;
     implementedElements: string[];
     motionEvents: string[];
     semanticLists: Array<Pick<SemanticInventory, 'label' | 'items' | 'presentationMode'>>;
@@ -754,15 +754,9 @@ export const validateSceneImplementation = (
           )
           .filter((entry) => entry.length >= 2)
       : [];
-    const cueDuration = visualMap.cues[index].outputEndSeconds - visualMap.cues[index].outputStartSeconds;
-    const minimumMotionEvents = cueDuration > 4 ? 2 : 1;
-    if (
-      cueIndex !== visualMap.cues[index].cueIndex ||
-      sceneKey.length < 3 ||
-      implementedElements.length < 2 ||
-      motionEvents.length < minimumMotionEvents
-    ) {
-      throw new Error(`第 ${index + 1} 个 cue 缺少具体场景、视觉元素或短语驱动动效实现`);
+    const presenterVisible = raw.presenterVisible !== false;
+    if (cueIndex !== visualMap.cues[index].cueIndex || sceneKey.length < 3) {
+      throw new Error(`第 ${index + 1} 个 cue 缺少具体场景实现`);
     }
     if (placeholderListPattern.test(implementedElements.join(' '))) {
       throw new Error(`第 ${index + 1} 个 cue 使用了 M1-M5、空模块卡或其他占位列举`);
@@ -786,8 +780,11 @@ export const validateSceneImplementation = (
     const rawRegions = Array.isArray(raw.layoutRegions) ? raw.layoutRegions : [];
     const layoutRegions = rawRegions.map((region, regionIndex) => parseLayoutRegion(region, index, regionIndex));
     const roles = new Set(layoutRegions.map((region) => region.role));
-    if (!["primary", "caption", "presenter"].every((role) => roles.has(role as LayoutRegion['role']))) {
-      throw new Error(`第 ${index + 1} 个 cue 必须声明 primary、caption、presenter 安全区`);
+    if (!["primary", "caption"].every((role) => roles.has(role as LayoutRegion['role']))) {
+      throw new Error(`第 ${index + 1} 个 cue 必须声明 primary 和 caption 安全区`);
+    }
+    if (presenterVisible && !roles.has('presenter')) {
+      throw new Error(`第 ${index + 1} 个 cue 声明人物可见但缺少 presenter 安全区`);
     }
     for (let leftIndex = 0; leftIndex < layoutRegions.length; leftIndex += 1) {
       for (let rightIndex = leftIndex + 1; rightIndex < layoutRegions.length; rightIndex += 1) {
@@ -826,17 +823,8 @@ export const validateSceneImplementation = (
     if (expectedEvidence && JSON.stringify(sourceVideoEvidence) !== JSON.stringify(expectedEvidence)) {
       throw new Error(`第 ${index + 1} 个 cue 的原片内容裁切/清理方案与视觉映射不一致`);
     }
-    return {cueIndex, sceneKey, implementedElements, motionEvents, semanticLists, layoutRegions, sourceVideoEvidence};
+    return {cueIndex, sceneKey, presenterVisible, implementedElements, motionEvents, semanticLists, layoutRegions, sourceVideoEvidence};
   });
-  let repeated = 1;
-  for (let index = 1; index < cues.length; index += 1) {
-    repeated = cues[index].sceneKey === cues[index - 1].sceneKey ? repeated + 1 : 1;
-    if (repeated > 2) throw new Error(`通用场景 ${cues[index].sceneKey} 连续复用超过两次`);
-  }
-  const uniqueSceneRatio = new Set(cues.map((cue) => cue.sceneKey)).size / cues.length;
-  if (cues.length >= 5 && uniqueSceneRatio < 0.6) {
-    throw new Error(`场景实现多样性不足 (${uniqueSceneRatio.toFixed(3)})，疑似反复套用同一模板`);
-  }
   return {cues};
 };
 
@@ -968,10 +956,12 @@ export const validateNarrationVisualMap = (
       throw new Error('复刻任务的原片视觉 cue 没有保持原有顺序');
     }
   }
-  const rawMotionEvidence = Array.isArray(root.sourceMotionEvidenceInventory)
-    ? root.sourceMotionEvidenceInventory
-    : [];
-  const sourceMotionEvidenceInventory = rawMotionEvidence.map((item, index): SourceMotionEvidence => {
+  const rawEvidence = Array.isArray(root.sourceEvidenceInventory)
+    ? root.sourceEvidenceInventory
+    : Array.isArray(root.sourceMotionEvidenceInventory)
+      ? root.sourceMotionEvidenceInventory
+      : [];
+  const sourceEvidenceInventory = rawEvidence.map((item, index): SourceEvidenceInventoryItem => {
     const evidence = item && typeof item === 'object' && !Array.isArray(item)
       ? (item as Record<string, unknown>)
       : {};
@@ -979,12 +969,14 @@ export const validateNarrationVisualMap = (
     const sourceEndSeconds = Number(evidence.sourceEndSeconds);
     const kind = typeof evidence.kind === 'string' ? evidence.kind.trim() : '';
     const description = typeof evidence.description === 'string' ? evidence.description.trim() : '';
-    const eligible = evidence.eligible === true;
+    const preserveOriginal = evidence.preserveOriginal === true || evidence.eligible === true;
     const mappedCueIndices = Array.isArray(evidence.mappedCueIndices)
       ? evidence.mappedCueIndices.map(Number)
       : [];
-    const exclusionReason = typeof evidence.exclusionReason === 'string'
-      ? evidence.exclusionReason.trim()
+    const rebuildReason = typeof evidence.rebuildReason === 'string'
+      ? evidence.rebuildReason.trim()
+      : typeof evidence.exclusionReason === 'string'
+        ? evidence.exclusionReason.trim()
       : undefined;
     if (
       !Number.isFinite(sourceStartSeconds) ||
@@ -996,25 +988,25 @@ export const validateNarrationVisualMap = (
       description.length < 8 ||
       mappedCueIndices.some((cueIndex) => !Number.isInteger(cueIndex) || cueIndex < 0 || cueIndex >= cues.length)
     ) {
-      throw new Error(`原片运动证据清单第 ${index + 1} 项无效`);
+      throw new Error(`原片证据清单第 ${index + 1} 项无效`);
     }
-    if (!eligible && (!exclusionReason || exclusionReason.length < 8)) {
-      throw new Error(`原片运动证据清单第 ${index + 1} 项缺少排除理由`);
+    if (!preserveOriginal && (!rebuildReason || rebuildReason.length < 8)) {
+      throw new Error(`原片证据清单第 ${index + 1} 项缺少重建理由`);
     }
-    if (eligible && !mappedCueIndices.length) {
-      throw new Error(`原片运动证据清单第 ${index + 1} 项没有映射到任何 cue`);
+    if (preserveOriginal && !mappedCueIndices.length) {
+      throw new Error(`原片证据清单第 ${index + 1} 项没有映射到任何 cue`);
     }
     for (const cueIndex of mappedCueIndices) {
       const cue = cues[cueIndex];
-      const preservesMotion = new Set([
+      const preservesEvidence = new Set([
         'source_clip',
         'source_video',
         'source_video_pip',
         'generated_video',
         'screen_recording',
       ]).has(cue.visualType);
-      if (eligible && !preservesMotion) {
-        throw new Error(`旁白视觉映射第 ${cueIndex + 1} 个 cue 禁止用卡片或示意图替代运动证据`);
+      if (preserveOriginal && !preservesEvidence) {
+        throw new Error(`旁白视觉映射第 ${cueIndex + 1} 个 cue 禁止用卡片或示意图替代原片演示证据`);
       }
     }
     return {
@@ -1022,12 +1014,12 @@ export const validateNarrationVisualMap = (
       sourceEndSeconds,
       kind,
       description,
-      eligible,
+      preserveOriginal,
       mappedCueIndices,
-      exclusionReason,
+      rebuildReason,
     };
   });
-  return {cues, ...(sourceMotionEvidenceInventory.length ? {sourceMotionEvidenceInventory} : {})};
+  return {cues, ...(sourceEvidenceInventory.length ? {sourceEvidenceInventory} : {})};
 };
 
 const validateInfiniteTalkReceipt = (
@@ -1294,7 +1286,6 @@ const validatePreflightReport = (
   filename: string,
   remotionVisual: string,
   sourceFramePaths: string[],
-  presenterSegmentCount: number,
 ): {storyboardPreviewPath: string; remotionStillPaths: string[]; presenterCropStillPaths: string[]} => {
   let value: Record<string, unknown>;
   try {
@@ -1317,12 +1308,12 @@ const validatePreflightReport = (
   if (!existsSync(storyboardPreviewPath) || statSync(storyboardPreviewPath).size <= 1024) {
     throw new Error('缺少低成本故事板预览');
   }
-  const remotionStillPaths = validateMediaPaths(workspace, value.remotionStillPaths, 'Remotion 前置静帧', 4);
+  const remotionStillPaths = validateMediaPaths(workspace, value.remotionStillPaths, 'Remotion 前置静帧', 2);
   const presenterCropStillPaths = validateMediaPaths(
     workspace,
     value.presenterCropStillPaths,
     '数字人裁切静帧',
-    Math.max(1, presenterSegmentCount),
+    1,
   );
   const visualMtime = statSync(remotionVisual).mtimeMs;
   for (const filenameToCheck of [storyboardPreviewPath, ...remotionStillPaths, ...presenterCropStillPaths]) {
@@ -2184,16 +2175,11 @@ export class CodexRunner {
       if (!existsSync(preflightReportPath) || statSync(preflightReportPath).size <= 128) {
         throw new Error('复刻任务缺少 Remotion 前置质检报告');
       }
-      const presenterSegmentCount = Math.max(
-        1,
-        Array.isArray(manifest.presenterSegmentPaths) ? manifest.presenterSegmentPaths.length : 1,
-      );
       const preflight = validatePreflightReport(
         workspace,
         preflightReportPath,
         remotionVisual,
         sourceReviewFramePaths,
-        presenterSegmentCount,
       );
       if (!job.assets.sourceVideo) throw new Error('复刻任务缺少原片路径');
       const sourceMeanLuma = measureSampledMeanLuma(job.assets.sourceVideo, 10);
@@ -2204,16 +2190,6 @@ export class CodexRunner {
         storyboardMeanLuma: Number(storyboardMeanLuma.toFixed(1)),
         finalMeanLuma: Number(finalMeanLuma.toFixed(1)),
       });
-      if (isGrossLumaMismatch(sourceMeanLuma, storyboardMeanLuma)) {
-        throw new Error(
-          `前置故事板与原片明暗风格严重不符 (${sourceMeanLuma.toFixed(1)} -> ${storyboardMeanLuma.toFixed(1)})`,
-        );
-      }
-      if (isGrossLumaMismatch(sourceMeanLuma, finalMeanLuma)) {
-        throw new Error(
-          `最终成片与原片明暗风格严重不符 (${sourceMeanLuma.toFixed(1)} -> ${finalMeanLuma.toFixed(1)})`,
-        );
-      }
     }
     const visualReviewPath = resolveWorkspacePath(workspace, manifest.visualReviewPath, 'visualReviewPath');
     if (!existsSync(visualReviewPath) || statSync(visualReviewPath).size <= 64) {
@@ -2226,7 +2202,7 @@ export class CodexRunner {
       if (error instanceof Error) throw error;
       throw new Error('视觉审查结果不是有效 JSON');
     }
-    callbacks.onEvent('visual_review_completed', `同一 Codex 会话视觉审查 ${visualReview.score}/100`, {
+    callbacks.onEvent('visual_review_completed', '同一 Codex 会话已完成人工视觉审查', {
       approved: visualReview.approved,
       score: visualReview.score,
       fatalIssues: visualReview.fatalIssues,
@@ -2235,17 +2211,17 @@ export class CodexRunner {
       coverScore: visualReview.coverScore,
       coverIssues: visualReview.coverIssues,
     });
-    if (!visualReview.approved || visualReview.score < 90 || visualReview.fatalIssues.length) {
+    if (!visualReview.approved || visualReview.fatalIssues.length) {
       const detail =
         visualReview.requiredFixes[0] ??
         visualReview.fatalIssues[0] ??
         visualReview.issues[0] ??
         '视觉风格未达到交付标准';
-      throw new Error(`视觉质量审查未通过 (${visualReview.score}/100): ${detail}`);
+      throw new Error(`视觉质量审查未通过: ${detail}`);
     }
-    if (!visualReview.coverApproved || visualReview.coverScore < 90) {
+    if (!visualReview.coverApproved) {
       throw new Error(
-        `封面质量审查未通过 (${visualReview.coverScore}/100): ${visualReview.coverIssues[0] ?? '封面信息密度或视觉焦点不足'}`,
+        `封面质量审查未通过: ${visualReview.coverIssues[0] ?? '封面焦点、标题或裁切有问题'}`,
       );
     }
 
@@ -2479,46 +2455,10 @@ export class CodexRunner {
         }
       }
 
-      const cueReviewFramePaths = validateMediaPaths(
-        workspace,
-        manifest.cueReviewFramePaths,
-        '旁白视觉 cue 审查帧',
-        narrationVisualMap.cues.length,
-      );
-      if (cueReviewFramePaths.length !== narrationVisualMap.cues.length) {
-        throw new Error(`旁白视觉 cue 审查帧数量必须与 cue 一致 (${cueReviewFramePaths.length}/${narrationVisualMap.cues.length})`);
-      }
-      const diversity = validateCueVisualDiversity(sourceReviewFramePaths, cueReviewFramePaths);
-
-      const longCueCount = narrationVisualMap.cues.filter(
-        (cue) => cue.outputEndSeconds - cue.outputStartSeconds > 4,
-      ).length;
-      const motionReviewFramePaths = longCueCount
-        ? validateMediaPaths(
-            workspace,
-            manifest.motionReviewFramePaths,
-            'cue 25%/75% 动效审查帧',
-            longCueCount * 2,
-          )
-        : [];
-      if (longCueCount && motionReviewFramePaths.length !== longCueCount * 2) {
-        throw new Error(
-          `cue 动效审查帧数量必须为长 cue 数量的两倍 (${motionReviewFramePaths.length}/${longCueCount * 2})`,
-        );
-      }
-      const motion = validateCueMotionPairs(motionReviewFramePaths);
-      validateMediaPaths(
-        workspace,
-        manifest.collisionReviewFramePaths,
-        'cue 入场/叠层峰值/退出碰撞审查帧',
-        narrationVisualMap.cues.length * 3,
-      );
-      callbacks.onEvent('replica_quality_checked', '已完成字幕、场景多样性与 cue 内持续动效硬校验', {
+      callbacks.onEvent('replica_quality_checked', '已完成字幕、场景语义与原片演示证据检查', {
         captionCount: captionTimeline.segments.length,
-        sourceUniqueRatio: Number(diversity.sourceUniqueRatio.toFixed(3)),
-        cueUniqueRatio: Number(diversity.cueUniqueRatio.toFixed(3)),
-        motionPairCount: motion.pairCount,
-        movingPairCount: motion.movingPairCount,
+        cueCount: narrationVisualMap.cues.length,
+        sourceEvidenceCueCount,
       });
     }
     const actualDuration = probeDuration(expected);

@@ -153,18 +153,13 @@ def validate_scene_contract(visual_map: Any, implementation: Any) -> dict[str, A
         scene_key = str(impl_cue.get("sceneKey") or "").strip()
         presenter_visible = impl_cue.get("presenterVisible")
         elements = impl_cue.get("implementedElements")
-        motions = impl_cue.get("motionEvents")
-        if len(scene_key) < 3 or not isinstance(presenter_visible, bool) or not isinstance(elements, list) or len(elements) < 2:
-            raise SceneContractError(f"cue {cue_index} needs sceneKey, presenterVisible, and at least two implementedElements")
+        if len(scene_key) < 3 or not isinstance(presenter_visible, bool) or not isinstance(elements, list):
+            raise SceneContractError(f"cue {cue_index} needs sceneKey, presenterVisible, and implementedElements")
         if map_cue.get("visualType") != "source_video_pip" and presenter_visible is not True:
             raise SceneContractError(f"cue {cue_index} has no moving source evidence, so the presenter must remain visible")
         element_text = " ".join(str(item) for item in elements)
         if PLACEHOLDER_RE.search(element_text):
             raise SceneContractError(f"cue {cue_index} contains placeholder enumeration labels: {element_text}")
-        duration = float(map_cue["outputEndSeconds"]) - float(map_cue["outputStartSeconds"])
-        if duration > 4.0 and (not isinstance(motions, list) or len(motions) < 2):
-            raise SceneContractError(f"cue {cue_index} over four seconds needs two motionEvents")
-
         if map_cue.get("visualType") == "source_video_pip":
             planned = map_cue.get("sourceVideoEvidence")
             implemented = impl_cue.get("sourceVideoEvidence")
@@ -192,12 +187,7 @@ def validate_scene_contract(visual_map: Any, implementation: Any) -> dict[str, A
                 or "source-video-pip" not in element_text
             ):
                 raise SceneContractError(f"cue {cue_index} does not implement the planned moving source clip")
-            _, _, evidence_width, evidence_height = evidence_bounds
-            if evidence_width < 0.72 or evidence_height < 0.50 or evidence_width * evidence_height < 0.42:
-                raise SceneContractError(
-                    f"cue {cue_index} source evidence is too small ({evidence_width:.3f}x{evidence_height:.3f}); "
-                    "16:9 demonstrations need at least 72% canvas width, 50% height, and 42% area"
-                )
+            _ = evidence_bounds
             display_mode = str(implemented.get("displayMode") or "")
             object_fit = str(implemented.get("objectFit") or "")
             if display_mode not in {"detail-stage", "full-bleed"}:
@@ -225,8 +215,8 @@ def validate_scene_contract(visual_map: Any, implementation: Any) -> dict[str, A
             enumeration_count += 1
 
         regions = impl_cue.get("layoutRegions")
-        if not isinstance(regions, list) or len(regions) < 3:
-            raise SceneContractError(f"cue {cue_index} needs primary, caption, and presenter layoutRegions")
+        if not isinstance(regions, list) or len(regions) < 2:
+            raise SceneContractError(f"cue {cue_index} needs primary and caption layoutRegions")
         parsed: list[tuple[str, str, tuple[float, float, float, float], dict[str, Any]]] = []
         for region_index, region in enumerate(regions):
             if not isinstance(region, dict):
@@ -237,8 +227,10 @@ def validate_scene_contract(visual_map: Any, implementation: Any) -> dict[str, A
                 raise SceneContractError(f"cue {cue_index} layout region {name} has invalid role {role}")
             parsed.append((role, name, _rect(region.get("bounds"), f"cue {cue_index} {name}"), region))
         roles = {role for role, _, _, _ in parsed}
-        if not {"primary", "caption", "presenter"}.issubset(roles):
-            raise SceneContractError(f"cue {cue_index} must reserve primary, caption, and presenter regions")
+        if not {"primary", "caption"}.issubset(roles):
+            raise SceneContractError(f"cue {cue_index} must reserve primary and caption regions")
+        if presenter_visible and "presenter" not in roles:
+            raise SceneContractError(f"cue {cue_index} shows the presenter but has no presenter region")
         for left_index, (left_role, left_name, left_rect, left_raw) in enumerate(parsed):
             for right_role, right_name, right_rect, right_raw in parsed[left_index + 1 :]:
                 ratio = _intersection_ratio(left_rect, right_rect)

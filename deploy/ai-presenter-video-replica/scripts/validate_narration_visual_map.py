@@ -11,28 +11,6 @@ from typing import Any
 
 MAX_CUE_SECONDS = 12.0
 MAX_GAP_SECONDS = 0.5
-MOVING_EVIDENCE_SUBJECT_RE = re.compile(
-    r"(?:这|哪|四|几)段视频|实拍|现场|前后对比|动作|奔跑|跑步|步态|"
-    r"运镜|跟拍|转向镜头|镜头(?:稳定|指令|推进|转向)|雨滴|水花|反射|眨眼|嘴型|口型|"
-    r"音频(?:延时|同步)|延时|同步|流畅|近似静态|静态图片|人物互动|物理逻辑|表情|"
-    r"脸部细节|头发|牙齿|耳朵|点击|拖拽|滚动|软件操作|设备操作|产品行为|画面动起来",
-    re.IGNORECASE,
-)
-MOVING_EVIDENCE_VERDICT_RE = re.compile(
-    r"你觉得.{0,24}(?:哪|像)|看(?:这|下面|一下).{0,12}(?:段|动作|运镜|画面|效果)|"
-    r"(?:最像|更像|像游戏|像实拍|AI感|接近静态)|(?:更|很|比较).{0,10}(?:自然|真实|流畅|稳定)|"
-    r"略显.{0,8}(?:别扭|失真|AI感)|偶尔.{0,8}(?:出错|不合|抖动)|容易.{0,8}(?:夸张|出错|失真|抖动)|"
-    r"明显.{0,8}(?:夸张|失真)|(?:同样|完全).{0,6}(?:没有|没能|做不到)|"
-    r"(?:没有|没能|不够|不合|出错|延时|夸张|别扭|做不到|未实现|能对上|表现不错)",
-    re.IGNORECASE,
-)
-SOURCE_SCENE_MOTION_RE = re.compile(
-    r"(?:正在|连续|实际)(?:播放|展示|操作)|人物.{0,12}(?:奔跑|动作|互动|眨眼|口型)|"
-    r"(?:雨滴|水花|运镜|镜头移动|点击|拖拽|滚动).{0,20}(?:可见|出现|推进|变化)",
-    re.IGNORECASE,
-)
-
-
 class VisualMapError(ValueError):
     pass
 
@@ -63,6 +41,8 @@ def _source_video_evidence(raw: dict[str, Any], cue: dict[str, float], index: in
         treatment = "not-visible"
     elif re.search(r"hidden|隐藏", treatment_text):
         treatment = "hidden"
+    elif re.search(r"outside|corner|角落|证据之外|缩小", treatment_text):
+        treatment = "outside"
     else:
         treatment = ""
     if (
@@ -73,7 +53,7 @@ def _source_video_evidence(raw: dict[str, Any], cue: dict[str, float], index: in
         or len(purpose) < 4
         or value.get("audioMuted") is not True
         or _number(value.get("playbackRate"), f"cue {index} playbackRate") != 1
-        or treatment not in {"hidden", "crop-action-only", "not-visible"}
+        or treatment not in {"hidden", "crop-action-only", "not-visible", "outside"}
     ):
         raise VisualMapError(f"cue {index} has invalid sourceVideoEvidence")
     return {"clip_start": clip_start, "clip_end": clip_end}
@@ -98,8 +78,6 @@ def validate_visual_map(
     previous_end = 0.0
     previous_source_start = -1.0
     parsed_evidence: dict[int, dict[str, Any]] = {}
-    missing_moving_evidence: list[int] = []
-    unjustified_moving_evidence: list[int] = []
     for index, raw in enumerate(cues):
         if not isinstance(raw, dict):
             raise VisualMapError(f"cue {index} must be an object")
@@ -128,14 +106,6 @@ def validate_visual_map(
             raise VisualMapError(f"cue {index} must include source evidence, scene state, and replication plan")
         if previous_source_start >= 0 and source_start + 1.0 < previous_source_start:
             raise VisualMapError(f"cue {index} source timestamps are out of source order")
-        moving_evidence_required = bool(
-            MOVING_EVIDENCE_VERDICT_RE.search(narration_text)
-            and (MOVING_EVIDENCE_SUBJECT_RE.search(narration_text) or SOURCE_SCENE_MOTION_RE.search(source_scene))
-        )
-        if moving_evidence_required and visual_type != "source_video_pip":
-            missing_moving_evidence.append(index)
-        if not moving_evidence_required and visual_type == "source_video_pip":
-            unjustified_moving_evidence.append(index)
         if visual_type == "source_video_pip":
             parsed_evidence[index] = _source_video_evidence(
                 raw,
@@ -144,55 +114,45 @@ def validate_visual_map(
             )
         previous_start, previous_end, previous_source_start = start, end, source_start
 
-    if missing_moving_evidence:
-        raise VisualMapError(
-            "moving-evidence cues missing source_video_pip: "
-            + ", ".join(str(index) for index in missing_moving_evidence)
-            + "; fix every listed cue in one pass, not one retry at a time"
-        )
-    if unjustified_moving_evidence:
-        raise VisualMapError(
-            "setup/method/score/conclusion cues must not use source_video_pip: "
-            + ", ".join(str(index) for index in unjustified_moving_evidence)
-            + "; use the presenter with native diagrams unless the current sentence judges visible motion"
-        )
-
     if previous_end < duration_seconds - 1.0:
         raise VisualMapError(f"last cue ends at {previous_end:.3f}s but narration lasts {duration_seconds:.3f}s")
 
-    inventory = value.get("sourceMotionEvidenceInventory")
+    inventory = value.get("sourceEvidenceInventory")
+    if not isinstance(inventory, list):
+        inventory = value.get("sourceMotionEvidenceInventory")
     if not isinstance(inventory, list) or not inventory:
-        raise VisualMapError("sourceMotionEvidenceInventory is required")
+        raise VisualMapError("sourceEvidenceInventory is required")
     mapped: set[int] = set()
     for index, item in enumerate(inventory):
         if not isinstance(item, dict):
-            raise VisualMapError(f"motion evidence item {index} must be an object")
-        start = _number(item.get("sourceStartSeconds"), f"motion evidence {index} start")
-        end = _number(item.get("sourceEndSeconds"), f"motion evidence {index} end")
-        eligible = item.get("eligible") is True
+            raise VisualMapError(f"source evidence item {index} must be an object")
+        start = _number(item.get("sourceStartSeconds"), f"source evidence {index} start")
+        end = _number(item.get("sourceEndSeconds"), f"source evidence {index} end")
+        preserve_original = item.get("preserveOriginal") is True or item.get("eligible") is True
         cue_indices = item.get("mappedCueIndices")
         cue_indices = [int(candidate) for candidate in cue_indices] if isinstance(cue_indices, list) else []
         if start < 0 or end <= start or len(str(item.get("kind") or "").strip()) < 3 or len(str(item.get("description") or "").strip()) < 8:
-            raise VisualMapError(f"motion evidence item {index} is invalid")
-        if eligible and not cue_indices:
-            raise VisualMapError(f"eligible motion evidence item {index} maps no source_video_pip cue")
-        if not eligible and len(str(item.get("exclusionReason") or "").strip()) < 8:
-            raise VisualMapError(f"ineligible motion evidence item {index} needs exclusionReason")
+            raise VisualMapError(f"source evidence item {index} is invalid")
+        if preserve_original and not cue_indices:
+            raise VisualMapError(f"preserved source evidence item {index} maps no source_video_pip cue")
+        rebuild_reason = item.get("rebuildReason") or item.get("exclusionReason")
+        if not preserve_original and len(str(rebuild_reason or "").strip()) < 8:
+            raise VisualMapError(f"rebuilt source evidence item {index} needs rebuildReason")
         for cue_index in cue_indices:
             evidence = parsed_evidence.get(cue_index)
             if not evidence:
-                raise VisualMapError(f"motion evidence item {index} maps cue {cue_index} without source_video_pip")
+                raise VisualMapError(f"source evidence item {index} maps cue {cue_index} without source_video_pip")
             if evidence["clip_end"] < start or evidence["clip_start"] > end:
-                raise VisualMapError(f"motion evidence item {index} does not overlap cue {cue_index} clip")
+                raise VisualMapError(f"source evidence item {index} does not overlap cue {cue_index} clip")
             mapped.add(cue_index)
     if set(parsed_evidence) - mapped:
-        raise VisualMapError("every source_video_pip cue must map to eligible motion evidence")
+        raise VisualMapError("every source_video_pip cue must map to preserved source evidence")
 
     return {
         "valid": True,
         "cueCount": len(cues),
         "sourceVideoPipCount": len(parsed_evidence),
-        "motionEvidenceInventoryCount": len(inventory),
+        "sourceEvidenceInventoryCount": len(inventory),
         "durationSeconds": duration_seconds,
     }
 

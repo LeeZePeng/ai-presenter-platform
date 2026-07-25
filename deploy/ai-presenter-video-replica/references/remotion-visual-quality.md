@@ -16,7 +16,7 @@ For topic or script jobs, derive the same fields from the requested style and su
 - Remove or rebuild source regions containing conflicting subtitles, baked-in presenters, or watermarks.
 - Treat every cue `replicationPlan` as an implementation checklist. A title and keyword tag cannot stand in for a promised terminal, diagram, comparison, workflow, code panel, icon set, progress state, or review sequence.
 - Treat enumerations as content, not decoration. “N 个模块 / N 件事 / N 步 / N 种模式” must either show N readable, source-grounded item names or collapse to one count-only visual when the source does not reveal the names. `M1–M5`, numbered empty cards, unlabeled nodes, and generic repeated icons are deterministic failures.
-- Use distinct source-specific scene components. No generic layout may serve more than two consecutive cues, and a visually diverse source requires at least 60% measurably distinct cue compositions.
+- Use source-specific scene components when the content changes. Repetition is acceptable for a continuous explanation; do not manufacture layouts to hit a diversity metric.
 
 ### Frame-layer budget
 
@@ -28,13 +28,13 @@ For topic or script jobs, derive the same fields from the requested style and su
 - Do not simultaneously stack persistent header, cue counter, bottom title, focus callout, large decoration, full captions, presenter, and primary UI. Visual rhythm comes from changing meaningful state, not maximizing layer count.
 - Do not use global `SceneSignature` / `PhraseFocus` systems that paint rings, sweeps, grids, brackets, or polygons across every cue. Phrase emphasis should change the primary diagram/card itself or reflow a declared secondary component into free space.
 
-## 3. Use source-video PIP only as moving evidence
+## 3. Preserve demonstrations as primary evidence
 
-- For real device demonstrations, software operation, product behavior, field footage, before/after action, or on-location scenes, prefer a short timestamp-grounded moving source clip over a static reconstruction when motion itself is the proof.
+- For software demos, generated webpages or videos, model comparisons, visible results, device operation, product behavior, field footage, and before/after states, prefer the timestamp-grounded source clip over an abstract reconstruction. Showing the result can be necessary even when motion is not the wording of the claim.
 - Render the muted, trimmed original clip inside Remotion with `data-source-evidence-layer="source-video-pip"`; preserve aspect ratio and natural speed.
-- In video evaluation, real-device demonstration, field footage, and software-operation cues, make the moving evidence the dominant panel: at least 72% of a 16:9 canvas width, 50% height, and 42% area; prefer 82-92% width for detailed footage. Use `contain` by default and never hide evaluated content behind `cover`, nested padding, a large title block, or an oversized presenter. Declare the exact moving-pixel rectangle as `evidenceBounds`, not the outer card.
+- Make the demonstration dominant and readable at normal phone playback. Use `contain` by default and never hide evaluated content behind `cover`, nested padding, a large title block, or an oversized presenter.
 - Do not place top/bottom masks, gradients, titles, badges, subtitles, or the presenter over the evidence pixels. All such layers belong outside the declared rectangle. A burned-in old subtitle is not permission to cover the original frame; select a clean interval or rebuild the cue.
-- Do not use source-video PIP for routine talking-head, test setup, method explanation, scoring criteria, conclusion, or static-slide cues. Phrases such as “same prompt / duration / aspect ratio” and “we will inspect motion / lip sync” describe the test, but do not themselves evaluate visible motion. Keep the InfiniteTalk presenter visible and explain them with native diagrams. Do not expose old subtitles, a baked presenter, a watermark, or original audio.
+- Routine talking-head, setup, methodology, and conclusions may remain presenter-led when no concrete artifact is being discussed. When a cue names or judges a demo/result, let the evidence take over even in the presenter-primary style. Do not expose old subtitles, a baked presenter, a watermark, or original audio.
 - Never show the original speaker and InfiniteTalk presenter as competing presenters. Hide one or crop the evidence clip to the action/UI region.
 - In model/video evaluation content, cards and score graphics may explain a verdict but cannot replace the generated clip being judged. Show the actual moving result whenever narration discusses motion, camera work, weather/particles, reflections, physical logic, expression, blinking, lip sync, or delay.
 
@@ -71,8 +71,7 @@ When the user selects `真人主画面·悬浮组件`, treat it as an explicit c
 ## 7. Motion and typography
 
 - Use `spring()` or eased `interpolate()` motion. Entrances should settle in 8-18 frames.
-- Every cue needs an entrance and phrase-triggered progress after the entrance. For cues over four seconds, central content must materially change between 25% and 75% of the cue.
-- Presenter mouth movement, subtitle replacement, background drift, and a scene's initial entrance do not count as central content motion.
+- Preserve natural demo motion and use phrase-triggered edits when helpful. Do not add motion only to satisfy a frame-difference check.
 - Use source-matched type scale and contrast. Keep Chinese `letterSpacing` at 0 and use only explicitly loaded 400, 700, and 900 Noto Sans CJK SC weights.
 
 ## 8. Required implementation evidence
@@ -85,10 +84,9 @@ Before full render, require:
 - semantic inventories for every counted list, copied into implementation `semanticLists` with the exact visible item labels;
 - normalized `layoutRegions` for every primary, secondary, caption, presenter, decoration, chrome, and summary layer;
 - one presenter-crop still per InfiniteTalk segment;
-- one actual Remotion still per cue;
-- 25%/75% motion-review pairs for every cue longer than four seconds;
-- entrance-settled, phrase-overlay-peak, and pre-exit stills for every cue, because quarter-point sampling misses transient overlap;
-- opening, middle, dense, and ending Remotion stills;
+- opening and ending stills;
+- one still from every source-evidence cue;
+- additional stills only for dense layouts or presenter/evidence handoffs with real collision risk;
 - `out/analysis/preflight_report.json` with `approved: true` and no issues.
 
 The storyboard proves planning only. The cue stills and motion pairs prove JSX implementation.
@@ -104,18 +102,15 @@ Fail before delivery when any of these is true:
 - a counted list lacks the promised number of readable source-grounded item names, or uses placeholder labels such as `M1–M5`;
 - declared primary/secondary UI intersects captions or the presenter, the presenter intersects captions, or secondary UI covers primary UI;
 - decoration crosses semantic content above 8% opacity, or an ungrounded bottom summary duplicates the complete caption layer;
-- fewer than 60% of cue compositions are measurably distinct while the source frames are diverse;
-- a generic scene layout repeats for more than two consecutive cues;
-- fewer than 60% of cues over four seconds show meaningful central-region change between their 25% and 75% frames;
 - subtitles are stale, summarized, clipped, or absent;
 - PPT/source visuals describe the previous or next spoken phrase;
 - the presenter is duplicated, stretched, hidden, or blocks captions or primary UI;
 - the final result uses full-frame screenshots, generic persistent chrome, or static-card swaps.
 - a planned source-video evidence cue is replaced by a still, carries original audio, exposes a watermark/old subtitle, or duplicates the presenter;
-- a source-video evidence rectangle is smaller than 72% canvas width, 50% height, or 42% area; omits `evidenceBounds`; uses `cover` without a documented crop-action-only need; or remains unreadable at normal playback size;
-- eligible motion evidence is inventoried but no cue uses `source_video_pip`, or a motion-evaluation cue uses only abstract UI;
+- a source-video evidence cue omits `evidenceBounds`, hides relevant content, or remains unreadable at normal playback size;
+- a demonstration, generated result, comparison, or product operation is replaced by abstract cards;
 - a setup/method/score/conclusion cue uses `source_video_pip`, or a non-evidence cue does not keep the InfiniteTalk presenter continuously visible;
 - the opening has no visible hook, long sections have no meaningful visual beats, or the closing sentence is cut off merely to increase pace.
 - the presenter-primary style uses a stretched square asset, lacks `data-layout-style="presenter-primary-floating-ui"`, or lets floating components cover the face, mouth, hands, or captions.
 
-After final mux, inspect the source, storyboard, cue, motion-pair, final, and cover montages in the same Codex session. Write `out/analysis/visual_review.json` and require video and cover scores of at least 90/100 with no fatal issues. Preserve narration and InfiniteTalk checkpoints so visual failures can be repaired without regenerating paid assets.
+After final mux, inspect the source, every evidence cue, the opening, ending, final video, and cover in the same Codex session. Write concrete issues and an `approved` decision in `out/analysis/visual_review.json`; numeric self-scores are optional and never a hard gate. Preserve narration and InfiniteTalk checkpoints so visual failures can be repaired without regenerating paid assets.

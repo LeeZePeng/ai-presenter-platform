@@ -34,6 +34,7 @@ def fixture() -> tuple[dict, dict]:
             {
                 "cueIndex": 0,
                 "sceneKey": "course-modules",
+                "presenterVisible": True,
                 "implementedElements": ["课程目录标题", "三张带完整名称的模块卡"],
                 "motionEvents": ["0.3 秒标题入场", "2.0 秒模块逐项点亮"],
                 "semanticLists": [

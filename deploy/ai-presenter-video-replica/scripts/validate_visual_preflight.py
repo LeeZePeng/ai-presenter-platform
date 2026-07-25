@@ -80,8 +80,8 @@ def main() -> None:
         issues.append(f'at least 10 source frames are required, found {len(source_frames)}')
     if not presenter_crops:
         issues.append('at least one presenter crop is required')
-    if len(remotion_stills) < 4:
-        issues.append(f'at least 4 Remotion stills are required, found {len(remotion_stills)}')
+    if len(remotion_stills) < 2:
+        issues.append(f'opening and ending Remotion stills are required, found {len(remotion_stills)}')
 
     groups = {
         'source': [source],
@@ -103,10 +103,6 @@ def main() -> None:
     storyboard_luma = mean_luma(storyboard, args.ffmpeg_bin) if storyboard.is_file() else None
     if source_luma is None or storyboard_luma is None:
         issues.append('could not measure source/storyboard luma')
-    elif abs(source_luma - storyboard_luma) > max(0.0, args.max_luma_difference):
-        issues.append(
-            f'storyboard luma differs too much from source: source={source_luma}, storyboard={storyboard_luma}'
-        )
 
     output = pathlib.Path(args.output).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)

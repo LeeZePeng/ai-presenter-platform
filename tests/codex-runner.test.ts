@@ -230,7 +230,7 @@ describe('narration-driven visual mapping', () => {
     ).toThrow('第 1 个 cue 时长 12.600 秒，超过 12 秒上限');
   });
 
-  it('rejects abstract cards when narration evaluates moving generated-video evidence', () => {
+  it('rejects abstract cards when narration needs a visible source demo', () => {
     const cue = (index: number, narrationText: string, visualType = 'native_rebuild') => ({
       cueIndex: index,
       outputStartSeconds: index * 4,
@@ -240,30 +240,30 @@ describe('narration-driven visual mapping', () => {
       sourceStartSeconds: index * 10,
       sourceEndSeconds: index * 10 + 8,
       sourceText: narrationText,
-      sourceSceneDescription: '原片正在播放对应模型的真实生成视频结果',
-      replicationPlan: '展示对应模型的当前结果并标注结论',
+      sourceSceneDescription: '原片正在展示真实产品报告和图表页面',
+      replicationPlan: '展示当前产品报告并标注结论',
     });
     expect(() =>
       validateNarrationVisualMap(
         {
           presenterSegmentationDrivesVisuals: false,
-          sourceMotionEvidenceInventory: [{sourceStartSeconds: 0, sourceEndSeconds: 8, kind: 'generated-video', description: '雨夜人物奔跑并展示镜头稳定性', eligible: true, mappedCueIndices: [0]}],
+          sourceEvidenceInventory: [{sourceStartSeconds: 0, sourceEndSeconds: 8, kind: 'software-demo', description: '真实产品报告包含对比表和结果图表', preserveOriginal: true, mappedCueIndices: [0]}],
           cues: [
-            cue(0, 'Kling 的奔跑动作流畅，雨滴和运镜更自然'),
+            cue(0, '报告页面展示了三项核心结果和对比数据'),
             cue(1, '接着看第二项静态评分'),
             cue(2, '最后给出整体结论'),
           ],
         },
         {
           narrationDuration: 12,
-          narrationScript: 'Kling 的奔跑动作流畅，雨滴和运镜更自然。接着看第二项静态评分。最后给出整体结论。',
-          sourceTranscript: 'Kling 的奔跑动作流畅，雨滴和运镜更自然。接着看第二项静态评分。最后给出整体结论。',
+          narrationScript: '报告页面展示了三项核心结果和对比数据。接着看第二项静态评分。最后给出整体结论。',
+          sourceTranscript: '报告页面展示了三项核心结果和对比数据。接着看第二项静态评分。最后给出整体结论。',
           sourceDuration: 30,
           exact: false,
           presenterSegmentCount: 1,
         },
       ),
-    ).toThrow('禁止用卡片或示意图替代运动证据');
+    ).toThrow('禁止用卡片或示意图替代原片演示证据');
   });
 });
 
@@ -296,7 +296,7 @@ describe('quality-first captions and scene implementation', () => {
     ).toThrow('覆盖不足');
   });
 
-  it('rejects repeated generic scene shells', () => {
+  it('allows a repeated layout for a continuous explanation', () => {
     const map = {
       sourceMotionEvidenceInventory: [{sourceStartSeconds: 0, sourceEndSeconds: 45, kind: 'static-slides', description: '原片是静态场景示意页，不包含实机或现场动作', eligible: false, mappedCueIndices: [], exclusionReason: '静态页面适合用原生组件重建'}],
       cues: Array.from({length: 5}, (_, index) => ({
@@ -327,7 +327,7 @@ describe('quality-first captions and scene implementation', () => {
         ],
       })),
     };
-    expect(() => validateSceneImplementation(generic, map)).toThrow('连续复用超过两次');
+    expect(() => validateSceneImplementation(generic, map)).not.toThrow();
   });
 
   it('rejects empty numbered UI and overlapping presenter/caption regions', () => {
@@ -516,7 +516,7 @@ describe('inspectArtifactProgress', () => {
 });
 
 describe('validateVisualReview', () => {
-  it('accepts a complete independent review and rejects malformed output', () => {
+  it('accepts optional diagnostic fields and rejects malformed approval output', () => {
     expect(
       validateVisualReview({
         approved: true,
@@ -530,15 +530,14 @@ describe('validateVisualReview', () => {
         requiredFixes: [],
       }),
     ).toMatchObject({approved: true, score: 88});
-    expect(() =>
+    expect(
       validateVisualReview({
         approved: true,
-        score: 88,
         coverApproved: true,
-        coverScore: 86,
         coverIssues: [],
       }),
-    ).toThrow('fatalIssues');
+    ).toMatchObject({approved: true, score: null, fatalIssues: [], issues: []});
+    expect(() => validateVisualReview({coverApproved: true, coverIssues: []})).toThrow('缺少有效结论');
   });
 });
 

@@ -71,13 +71,14 @@ describe('buildCodexPrompt', () => {
     expect(prompt).toContain('prepare_presenter_track.py');
     expect(prompt).toContain('presenterTrackPath');
     expect(prompt).toContain('presenter/presenter-track.mp4');
-    expect(prompt).toContain('retry.reusedSourceTranscript=true');
-    expect(prompt).toContain('retry.reusedPresenterRender=true');
-    expect(prompt).toContain('最终成片不得整段只展示全屏口播人物');
+    expect(prompt).toContain('演示证据硬门禁');
+    expect(prompt).toContain('不能被抽象卡片、图标、粒子或文字总结替代');
+    expect(prompt).toContain('人物缩小、移到证据之外或完全隐藏');
     expect(prompt).toContain('旁白时间戳工具');
     expect(prompt).toContain('必须严格按顺序执行：先完成最终口播文案');
-    expect(prompt).toContain('所有分段 prompt_id、视频 SHA-256 均不同');
-    expect(prompt).toContain('remotionVisualPath 对应文件也不得含音轨');
+    expect(prompt).toContain('约 6-7 个有效汉字/秒');
+    expect(prompt).toContain('0.15-0.35 秒');
+    expect(prompt).toContain('包装器输出的 out/remotion_visual.mp4 是视觉母版');
     expect(prompt).toContain('narrationTimelinePath');
     expect(prompt).toContain('captionTimelinePath');
     expect(prompt).toContain('data-caption-layer="narration-timeline"');
@@ -88,49 +89,36 @@ describe('buildCodexPrompt', () => {
     expect(prompt).toContain('/skills/ai-presenter-video-replica/scripts/validate_narration_visual_map.py');
     expect(prompt).toContain('/skills/ai-presenter-video-replica/scripts/validate_scene_contract.py');
     expect(prompt).toContain('semanticInventories');
-    expect(prompt).toContain('禁止 M1-M5');
-    expect(prompt).toContain('layoutRegions');
-    expect(prompt).toContain('主内容、字幕、人物互不相交');
-    expect(prompt).toContain('入场稳定后、每个短语叠层峰值、退出前');
-    expect(prompt).toContain('禁止带错进入付费推理');
-    expect(prompt).toContain('严禁把 source-cues、联系表或原片截图作为全屏静态背景');
+    expect(prompt).toContain('不要为了满足元素数量、动效事件数、构图差异率或通用模板次数而添加无用 UI');
+    expect(prompt).toContain('联系表和审查蒙太奇不得进入成片');
     expect(prompt).toContain('@remotion/media Video');
     expect(prompt).toContain('data-presenter-layer="infinite-talk"');
     expect(prompt).toContain('FFmpeg 只能用 -c:v copy');
-    expect(prompt).toContain('coverApproved、coverScore、coverIssues');
-    expect(prompt).toContain('才允许开始 Remotion UI 编排');
+    expect(prompt).toContain('coverApproved 和 coverIssues');
     expect(prompt).toContain('禁止让图片/视频生成模型绘制文字');
     expect(prompt).toContain('@remotion/fonts');
     expect(prompt).toContain('Presenter Noto Sans SC');
-    expect(prompt).toContain('out/analysis/preflight_report.json');
     expect(prompt).not.toContain('画面默认不生成文字、字幕或 UI');
     expect(prompt).toContain('render_remotion.py');
     expect(prompt).toContain('--concurrency 16');
     expect(prompt).toContain('--fallback-concurrency 12');
-    expect(prompt).toContain('完整 render 禁止直接调用 CLI');
-    expect(prompt).toContain('严禁为了颜色再跑一遍 Remotion');
+    expect(prompt).toContain('完整 render 必须且只能调用');
     expect(prompt).toContain('Remotion 4.0.490');
     expect(prompt).toContain('严禁改用 FFmpeg drawtext/drawbox');
     expect(prompt).toContain('禁止为追逐 ffprobe 平均码率反复重编码');
-    expect(prompt).toContain('清单和上述检查通过后立即结束');
     expect(prompt).toContain('5 秒是系统允许的最长时长上限');
-    expect(prompt).toContain('compositionRenderer（固定为 Remotion）');
     expect(prompt).toContain('/skills/remotion-best-practices/SKILL.md');
-    expect(prompt).toContain('out/analysis/visual_design.json');
     expect(prompt).toContain('同一帧最多只能出现一个讲解人物');
-    expect(prompt).toContain('禁止套通用科技 dashboard');
-    expect(prompt).toContain('out/stills/final/review_montage.jpg');
-    expect(prompt).toContain('不得结束当前 Codex 会话或交给另一个模型');
-    expect(prompt).toContain('out/analysis/visual_review.json');
+    expect(prompt).toContain('禁止通用科技 dashboard');
     expect(prompt).toContain('sceneImplementationPath');
     expect(prompt).toContain('motionReviewFramePaths');
     expect(prompt).toContain('collisionReviewFramePaths');
     expect(prompt).toContain('sceneContractReportPath');
-    expect(prompt).toContain('整体和封面 score 都必须 >= 90');
+    expect(prompt).toContain('motionReviewFramePaths、collisionReviewFramePaths、cue diversity 和自评分不再是交付硬门禁');
+    expect(prompt).not.toContain('整体和封面 score 都必须 >= 90');
     expect(prompt).toContain('marketingTitle');
-    expect(prompt).toContain('out/cover.png');
     expect(prompt).toContain('发布目标是原尺寸母版');
-    expect(prompt).toContain('publishPlatform（固定为 original）');
+    expect(prompt).toContain('"publishPlatform": "original"');
 
     const clonePrompt = buildCodexPrompt(
       {...job, mode: 'clone', replicaMode: 'exact', script: '', topic: '嵌入原片录屏', assets: {sourceVideo: '/jobs/job-1/assets/source.mp4'}},
@@ -155,14 +143,10 @@ describe('buildCodexPrompt', () => {
     expect(clonePrompt).toContain('禁止摘要、合并章节、删除例子');
     expect(clonePrompt).toContain('/jobs/job-1/out/analysis/source_transcript.json');
     expect(clonePrompt).toContain('sourceTranscriptPath 必须原样指向 worker 生成的');
-    expect(clonePrompt).toContain('至少 10 张代表帧');
-    expect(clonePrompt).toContain('sourceSceneDescription');
+    expect(clonePrompt).toContain('至少 10 张原片代表帧');
     expect(clonePrompt).toContain('sourceReviewFramePaths');
     expect(clonePrompt).toContain('visualType=source_video_pip');
     expect(clonePrompt).toContain('data-source-evidence-layer="source-video-pip"');
-    expect(clonePrompt).toContain('不得给普通口播或静态 PPT 滥用原视频 PIP');
-    expect(clonePrompt).toContain('网感是独立的全片节奏要求');
-    expect(clonePrompt).toContain('约每 3-6 秒安排一次有语义的视觉推进');
     expect(clonePrompt).toContain('用户未勾选翻译');
 
     const translatedClonePrompt = buildCodexPrompt(
@@ -237,7 +221,7 @@ describe('buildCodexPrompt', () => {
     expect(presenterPrimaryPrompt).toContain('prepare-assets --source-image "/jobs/job-1/assets/avatar.jpg"');
     expect(presenterPrimaryPrompt).toContain('data-layout-style="presenter-primary-floating-ui"');
     expect(presenterPrimaryPrompt).toContain('每帧最多同时出现一个主组件和一个次组件');
-    expect(presenterPrimaryPrompt).toContain('不得退回角落圆形 PIP');
+    expect(presenterPrimaryPrompt).toContain('真实证据改为主画面，人物允许缩到角落、移到证据之外或暂时隐藏');
 
     const portraitPresenterPrimaryPrompt = buildCodexPrompt(
       {...job, aspectRatio: '9:16', style: '真人主画面·悬浮组件'},
@@ -284,7 +268,7 @@ describe('buildCodexPrompt', () => {
     expect(douyinPrompt).toContain('第 0 帧');
     expect(douyinPrompt).toContain('主标题至少 84px');
     expect(douyinPrompt).toContain('x=80-900、y=140-1580');
-    expect(douyinPrompt).toContain('publishPlatform（固定为 douyin）');
+    expect(douyinPrompt).toContain('"publishPlatform": "douyin"');
 
     const avatarCanvasPrompt = buildCodexPrompt(
       {

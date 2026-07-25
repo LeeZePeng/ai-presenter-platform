@@ -48,6 +48,7 @@ InfiniteTalk boundaries must never drive visual cuts.
 ## Complete caption contract
 
 - Use the locked final narration audio for timing and `out/audio/final_script.txt` for the authoritative words.
+- For generated Douyin/WeChat Chinese narration, aim for a natural brisk read around 6-7 meaningful Chinese characters per second with 0.15-0.35 second sentence pauses. Decide this in script punctuation and the TTS provider settings before locking the audio; never time-stretch the locked narration or lip-sync result.
 - Correct ASR product names, homophones, punctuation, and broken clauses against the locked script without changing timing boundaries arbitrarily.
 - Write `out/analysis/caption_timeline.json` with `version`, `narrationTimelinePath`, `scriptPath`, and phrase-level `segments` containing `startSeconds`, `endSeconds`, and `text`.
 - Require bidirectional normalized text coverage of at least 95% between caption text and the locked script. Cover the opening and ending, leave no gap over 0.5 seconds, keep captions at 1.2-4.5 seconds normally, and never exceed 6 seconds.
@@ -112,22 +113,22 @@ Do not continue until this command exits successfully.
 - Keep the source video aspect ratio inside the crop. Do not scale the presenter to the crop's square dimensions before masking.
 - The presenter is part of the Remotion composition, marked with `data-presenter-layer="infinite-talk"`. Post-render FFmpeg overlays are forbidden; FFmpeg may only stream-copy the finished video while muxing locked narration.
 
-## Conditional source-video evidence PIP
+## Demonstration-first source evidence
 
-Source-video PIP is an evidence treatment, not the default visual language and not the mechanism that creates overall short-video appeal.
+Source video is evidence, not decoration. Preserve it whenever viewers need to see the tested product, generated result, comparison, or operation to understand or trust the narration.
 
-Before writing cues, audit every selected source interval into top-level `sourceMotionEvidenceInventory`. Each entry must include `sourceStartSeconds`, `sourceEndSeconds`, `kind`, `description`, `eligible`, and `mappedCueIndices`; an ineligible item also needs a specific `exclusionReason`. If any eligible entry exists, at least one mapped cue must use moving source evidence.
+Before writing cues, audit every selected source interval into top-level `sourceEvidenceInventory`. Each entry must include `sourceStartSeconds`, `sourceEndSeconds`, `kind`, `description`, `preserveOriginal`, and `mappedCueIndices`; an item that is rebuilt also needs a concrete reason.
 
-- Require it only when the original motion materially proves the current sentence: device operation, software interaction, physical behavior, field footage, before/after action, an on-location event, or a concrete evaluation of generated-video motion, realism, camera behavior, physics, facial motion, or lip sync. The narration must both identify the visible moving subject and make an observation or verdict about what it does.
-- Do not mark setup or explanatory copy as motion evidence. “Use the same prompt / duration / aspect ratio”, test-group introductions, “we will inspect motion / lip sync”, scoring dimensions, methodology, disclaimers, transitions, summaries, and conclusions stay presenter-led with native diagrams even if nearby source footage contains movement. Split mixed cues at the sentence boundary instead of letting an evidence clause pull an explanatory clause into source video.
+- Preserve the original interval for software demos, generated webpages or videos, model comparisons, before/after states, data visualizations, product interaction, device operation, physical behavior, field footage, and visible outputs being judged. Motion need not be the literal claim; the visible result may itself be the proof.
+- Setup, methodology, transitions, and conclusions may remain presenter-led when no concrete artifact is being shown. Split mixed cues so the demonstration can take over exactly when the narration names it.
 - Mark the matching visual cue as `visualType: "source_video_pip"`, preserve the cited `sourceStartSeconds` and `sourceEndSeconds`, and describe the crop, placement, and evidence purpose in `replicationPlan`.
 - Stage the original video under Remotion `public/source/`, trim to the cited interval, mute the source audio, preserve natural playback speed, and render with `Video` or `OffthreadVideo` inside `data-source-evidence-layer="source-video-pip"`.
 - Keep the clip moving and phrase-aligned. Do not replace it with a still, use it as a full-frame background, loop an arbitrary moment, or let it continue after its evidence purpose ends.
-- For video evaluation, device demonstrations, field footage, or software operation in 16:9 output, the moving pixels are the primary evidence: require at least 72% canvas width, 50% canvas height, and 42% canvas area, and prefer 82-92% width for detailed scenes. Use `objectFit: "contain"` by default; `cover` is allowed only for a documented `crop-action-only` treatment that preserves every relevant action. Do not count an outer card, title block, border, or padding as evidence area.
+- Make the demonstration dominant and readable at normal playback size. Prefer full-bleed or a large detail stage; use `objectFit: "contain"` by default and crop only irrelevant browser chrome or a baked presenter.
 - Keep the exact moving-pixel rectangle unobstructed. Top/bottom masks, gradient bands, titles, badges, subtitles, and presenters may not cover any source-video pixels. Put labels outside the evidence rectangle. If burned-in source text conflicts, choose another interval or rebuild; never conceal the top or bottom of the evaluated frame.
 - In `scene_implementation.json`, add `displayMode`, `objectFit`, and normalized `evidenceBounds` to every implemented `sourceVideoEvidence`. Mark the exact video rectangle with `data-layout-role="evidence"` and `data-evidence-display="detail-stage" | "full-bleed"`.
 - Crop or rebuild regions containing old subtitles, baked presenters, or watermarks. If the original speaker remains visible, hide the InfiniteTalk presenter for that interval or reframe to a speaker-free action region.
-- Record the source-video PIP and its exact trim interval in `scene_implementation.json` as an implemented element. Ordinary talking-head, setup, method, score, conclusion, and static-slide cues should continue using native Remotion reconstruction. Their implementation entries must set `presenterVisible: true`, and the InfiniteTalk layer must remain continuously visible for the cue rather than appearing for only a few transition frames.
+- Record the source-video interval in `scene_implementation.json`. The InfiniteTalk presenter may shrink or hide during evidence; being “presenter-primary” never overrides the need to show a demonstration.
 - Put `sourceVideoEvidence` on both the map cue and implementation cue. The map fields are `clipStartSeconds`, `clipEndSeconds`, `evidencePurpose`, `audioMuted: true`, `playbackRate: 1`, and `presenterTreatment`; the implementation also carries `sourceAsset: "source/sourceVideo.mp4"` and `layerMarker: "source-video-pip"`.
 
 ## Online-native retention rhythm
@@ -146,11 +147,10 @@ Treat overall “网感” independently from source-video PIP.
 - A source decode failure is not permission to use static source frames. Use Remotion v4 `Video` from `@remotion/media`; on `Code 4` or `DEMUXER_ERROR_COULD_NOT_OPEN`, use Remotion `OffthreadVideo`. Rebuild natively if both official media paths fail.
 - If the source cannot be replayed cleanly, rebuild the cue with native Remotion shapes, text, diagrams, and motion while matching the source visual language.
 - Full-frame `source-cues/*.jpg`, contact sheets, and screenshots are analysis artifacts only and must never appear as delivered scene backgrounds.
-- Every cue has a visible but concise frame-driven transition or emphasis. Static image swaps do not satisfy the clone contract.
-- A cue plan is not implementation evidence. Write `out/analysis/scene_implementation.json` after JSX and map every cue to its concrete scene key, implemented visual elements, and phrase-triggered motion events.
+- Use transitions and emphasis when they help meaning. Do not animate merely to create frame differences.
+- A cue plan is not implementation evidence. Write `out/analysis/scene_implementation.json` after JSX and map every cue to its concrete scene key and source-evidence decision.
 - Do not satisfy multiple distinct replication plans with the same title-card shell. When the source uses terminals, diagrams, code editors, comparison layouts, workflow nodes, progress states, or review steps, implement those structures as distinct Remotion scenes.
-- For cues longer than four seconds, the central content region must materially change between 25% and 75% of the cue. Presenter mouth motion, subtitle changes, background drift, and a one-time entrance do not count.
-- Render one final cue still per cue and 25%/75% motion pairs. Compare visual signatures against the source-frame diversity; a source with many distinct states cannot pass with two or three repeated templates.
+- Review the opening, ending, every evidence cue, and any dense handoff. Do not require 25%/75% motion pairs or a scene-diversity percentage.
 
 ## Publish package
 
