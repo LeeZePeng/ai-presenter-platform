@@ -78,6 +78,7 @@ When the user selects `真人主画面·悬浮组件`, treat it as an explicit c
 
 - Stills are for crop, typography, safe-area, and collision checks. They cannot prove editing rhythm, source-video motion, cue timing, subtitle page changes, or presenter/evidence handoffs.
 - Render a complete low-resolution review proxy from the same Remotion composition and play it continuously from frame zero to the ending before the HQ master.
+- For a composition longer than 120 seconds, use non-blocking CSS `@font-face` for bundled fonts. Do not use `@remotion/fonts` `loadFont()` in long renders: a late renderer tab may hold `delayRender()` until the 118-second timeout even when still renders pass.
 - During continuous review, record every timing mismatch, repetitive stretch, decoder flash, stale caption, awkward cut, frozen demonstration, and unmotivated animation. Fix the composition and review the complete proxy again.
 - `visual_review.json` records `continuousReviewCompleted`, `continuousReviewDurationSeconds`, and `continuousReviewIssues`. Approval is invalid when the full proxy was not watched.
 - For 9:16 delivery of 16:9 source evidence, use a full-width semantic crop or controlled pan occupying roughly 45-55% of frame height. A small centered landscape card with large empty bands is not phone-readable evidence.
