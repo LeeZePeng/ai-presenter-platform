@@ -17,7 +17,7 @@ Use the bundled scripts for repeatable media inspection, contact sheets, long-fo
 
 Prefer `HEYGEN_API_KEY` from the environment for HeyGen calls. Never write API keys into skill files, project source, logs, or committed `.env` files. If `HEYGEN_API_KEY` is unavailable, fall back to HeyGen CLI/OAuth only after telling the user that API-key automation is not configured.
 
-Use `QWEN_TTS_API_TOKEN` for uploaded-reference voice cloning through the private cloud Qwen3-TTS Base service. Use `MODELVERSE_API_KEY` only for ModelVerse-managed services such as ASR or a user-selected system voice. Never write either key into skill files, project source, logs, or committed `.env` files.
+Use `DASHSCOPE_API_KEY` for uploaded-reference voice cloning through managed `qwen3-tts-vc-2026-01-22`. Do not deploy or silently fall back to a GPU TTS model: all four CompShare GPUs are reserved for InfiniteTalk. Use `MODELVERSE_API_KEY` only for ModelVerse-managed services such as ASR or a user-selected system voice: ModelVerse `qwen3-tts-flash` exposes preset voices and is not reference-voice cloning. Never write any key into skill files, project source, logs, or committed `.env` files.
 
 When HeyGen is needed, run `scripts/heygen_api.py me` before media upload. If the key is missing, stop before credit-spending work and guide the user with one concise message in their language:
 
@@ -51,7 +51,7 @@ If a user asks how to fill the key, run `scripts/heygen_api.py setup-key` or sho
    - Never manufacture engagement bait. Unless the user explicitly supplies and insists on such copy, reject closing requests for likes, follows, saves, shares, comments, DMs, keyword replies, or “一键三连”. A genuine action belongs in the subject matter (for example, build the first Agent and evaluate it), not in platform engagement metrics.
    - Before any TTS or presenter request, run `python3 scripts/validate_narration_script.py --input out/audio/final_script.txt`. Fix every error first. Run it again during final validation so a later rewrite cannot drop or contaminate the closing.
    - When the user supplies a complete narration MP3/WAV, use it directly without TTS, time stretching, or speed changes. Probe its exact duration and make the presenter and final MP4 match it; hosted platform narration uploads are limited to 180 seconds.
-   - If `voiceMode=uploaded_reference`, preserve the uploaded speaker identity. Use the worker-produced `voice_reference_clean.wav` plus its exact ASR transcript with `scripts/qwen_cloud_tts.py`. The backend must be Qwen3-TTS-12Hz-1.7B-Base voice clone; ModelVerse `qwen3-tts-flash` is a system-voice model and is not an acceptable substitute. If the Qwen clone service is unavailable, fail visibly instead of silently changing the speaker.
+   - If `voiceMode=uploaded_reference`, preserve the uploaded speaker identity. Use the worker-produced `voice_reference_clean.wav` plus its exact ASR transcript with `scripts/qwen_cloud_tts.py`. The only production backend is managed `qwen3-tts-vc-2026-01-22`; it must enroll the cleaned reference and exact transcript once, cache the returned voice ID by reference/model hash, and reuse it for every narration chunk. Reject `fallback_mode` enrollment because it means the sample/transcript failed the high-fidelity path. ModelVerse `qwen3-tts-flash` is a system-voice model and is not an acceptable substitute. If Qwen cloning is unavailable, fail visibly instead of silently changing the speaker.
    - For a user-selected system voice, use the configured managed provider and label it as a system voice, never as voice cloning.
    - For long exact narration, use `scripts/long_form_tts.py`; it chunks at sentence boundaries, resumes completed chunks, normalizes them, and creates one locked WAV. Pass `scripts/qwen_cloud_tts.py` as its argv-safe `--tts-command` for uploaded-reference jobs so every chunk reuses the same cleaned reference and transcript.
    - Pass a `--cache-key` derived from the model, cleaned-reference SHA-256, and reference-transcript SHA-256. Never reuse long-form chunk audio across a provider, model, speed, reference voice, or reference transcript change.
@@ -137,7 +137,7 @@ If a user asks how to fill the key, run `scripts/heygen_api.py setup-key` or sho
 - `scripts/media_report.py <media>`: JSON media stream and duration report.
 - `scripts/contact_sheet.sh <input.mp4> <output.jpg> [cols] [width]`: quick visual overview.
 - `scripts/heygen_api.py`: API-key first wrapper for HeyGen user check, asset upload, lipsync create/get/download.
-- `scripts/qwen_cloud_tts.py`: authenticated client for cloud Qwen3-TTS Base reference-voice cloning; reads the reference transcript JSON and never logs its token.
+- `scripts/qwen_cloud_tts.py`: authenticated client for managed DashScope Qwen3-TTS VC; reads the reference transcript JSON, rejects degraded enrollment, caches only the voice ID and reference/model hashes, and never logs its key.
 - `scripts/validate_narration_script.py`: deterministic guard for a complete spoken closing without engagement bait.
 - `scripts/validate_audio_quality.py`: measures loudness, peak, pauses, ASR intelligibility, and reviewed term pronunciation before lip-sync.
 - `scripts/long_form_tts.py`: resumable sentence-safe long-form narration assembly for an argv-safe TTS provider command.

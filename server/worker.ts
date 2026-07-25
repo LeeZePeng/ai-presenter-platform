@@ -17,7 +17,7 @@ import type {CodexRunner} from './codex-runner.js';
 import type {SourceTranscriber} from './asr.js';
 import {buildCodexPrompt} from './prompt.js';
 import {prepareVoiceReference} from './voice-reference.js';
-import {waitForQwenTtsReady} from './qwen-tts-health.js';
+import {probeQwenTtsHealth} from './qwen-tts-health.js';
 import type {JobRecord} from './types.js';
 
 type WorkerOptions = {
@@ -28,6 +28,7 @@ type WorkerOptions = {
   presenterWorkers: Array<{server: string; comfyServer: string}>;
   qwenTtsBaseUrl: string;
   qwenTtsApiToken: string;
+  qwenTtsModel: string;
   remotionRuntimeDir: string;
   remotionSkillPath: string;
   remotionBrowserExecutable: string;
@@ -293,7 +294,13 @@ export class JobWorker {
       let voiceReferenceCleanPath: string | undefined;
       let voiceReferenceTranscriptPath: string | undefined;
       if (job.voiceMode === 'uploaded_reference' && !visualRepairOnly && !reusePresenterRender) {
-        if (!this.options.qwenTtsApiToken) throw new Error('参考音色服务尚未配置，管理员需要先部署 Qwen3-TTS');
+        const qwenTts = await probeQwenTtsHealth({
+          baseUrl: this.options.qwenTtsBaseUrl,
+          apiToken: this.options.qwenTtsApiToken,
+          model: this.options.qwenTtsModel,
+        });
+        if (qwenTts.status !== 'ready') throw new Error(`参考音色服务未就绪：${qwenTts.message}`);
+        this.db.addEvent(job.id, 'info', 'qwen_tts_ready', `${qwenTts.model} 云端参考音色已配置，GPU 仅用于数字人口型`);
         if (!job.assets.voiceReference) throw new Error('参考音色任务缺少声音文件');
         const reusableVoiceReference =
           typeof job.metadata.voiceReferenceCleanPath === 'string' &&
@@ -345,7 +352,7 @@ export class JobWorker {
               voiceReferenceTranscriptSha256: transcript.sha256,
             },
           });
-          this.db.addEvent(job.id, 'info', 'voice_reference_ready', '参考音色已清理并取得逐字转写，可用于 Qwen 高保真克隆', {
+          this.db.addEvent(job.id, 'info', 'voice_reference_ready', '参考音色已清理并取得逐字转写，可用于千问云端高保真克隆', {
             durationSeconds: prepared.durationSeconds,
             voiceReferenceCleanPath: prepared.audioPath,
             voiceReferenceTranscriptPath: transcript.path,
@@ -420,29 +427,6 @@ export class JobWorker {
       } else {
         this.db.addEvent(job.id, 'info', 'power', '正在确认 GPU 实例状态');
         await this.power.ensureRunning(`任务 ${job.id.slice(0, 8)} 开始执行`);
-        if (job.voiceMode === 'uploaded_reference') {
-          this.db.updateJob(job.id, {status: 'provisioning', stage: '等待 Qwen 参考音色服务', progress: 18});
-          this.db.addEvent(job.id, 'info', 'qwen_tts_waiting', 'GPU 已就绪，正在等待 Qwen 参考音色模型加载');
-          let lastStatus = '';
-          const qwenTts = await waitForQwenTtsReady({
-            baseUrl: this.options.qwenTtsBaseUrl,
-            apiToken: this.options.qwenTtsApiToken,
-            readyTimeoutMs: 10 * 60 * 1000,
-            isCancelled: () => this.db.isCancelRequested(job.id),
-            onStatus: (snapshot) => {
-              if (snapshot.status === lastStatus) return;
-              lastStatus = snapshot.status;
-              this.db.addEvent(job.id, 'info', 'qwen_tts_status', snapshot.message, {
-                status: snapshot.status,
-                model: snapshot.model,
-              });
-            },
-          });
-          if (qwenTts.status !== 'ready') {
-            throw new Error(`Qwen 参考音色服务未就绪：${qwenTts.message}`);
-          }
-          this.db.addEvent(job.id, 'info', 'qwen_tts_ready', 'Qwen3-TTS Base 已就绪，将严格使用上传参考音色');
-        }
       }
       if (this.db.isCancelRequested(job.id)) throw new Error('任务已取消');
 
@@ -470,6 +454,7 @@ export class JobWorker {
         presenterComfyUrl: this.options.presenterComfyUrl,
         presenterWorkers: this.options.presenterWorkers,
         qwenTtsBaseUrl: this.options.qwenTtsBaseUrl,
+        qwenTtsModel: this.options.qwenTtsModel,
         remotionRuntimeDir: this.options.remotionRuntimeDir,
         remotionSkillPath: this.options.remotionSkillPath,
         remotionBrowserExecutable: this.options.remotionBrowserExecutable,

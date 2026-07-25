@@ -16,6 +16,57 @@ afterEach(() => {
 });
 
 describe('long_form_tts.py', () => {
+  it('trims only the outer silence and preserves natural pauses inside a chunk', async () => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'long-form-tts-pauses-'));
+    temporaryDirectories.push(directory);
+    const input = path.join(directory, 'script.txt');
+    const output = path.join(directory, 'narration.wav');
+    const checkpoints = path.join(directory, 'checkpoints');
+    const provider = path.join(directory, 'provider.py');
+    writeFileSync(input, '第一句话停顿一下。第二句话必须继续保留。');
+    writeFileSync(provider, `
+import argparse
+import subprocess
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--text', required=True)
+parser.add_argument('--output', required=True)
+parser.add_argument('--ffmpeg', required=True)
+args = parser.parse_args()
+subprocess.run([
+    args.ffmpeg, '-y', '-v', 'error',
+    '-f', 'lavfi', '-i', 'anullsrc=r=24000:cl=mono:d=0.2',
+    '-f', 'lavfi', '-i', 'sine=frequency=250:sample_rate=24000:duration=1',
+    '-f', 'lavfi', '-i', 'anullsrc=r=24000:cl=mono:d=0.4',
+    '-f', 'lavfi', '-i', 'sine=frequency=500:sample_rate=24000:duration=1',
+    '-f', 'lavfi', '-i', 'anullsrc=r=24000:cl=mono:d=0.2',
+    '-filter_complex', '[0:a][1:a][2:a][3:a][4:a]concat=n=5:v=0:a=1',
+    '-c:a', 'pcm_s16le', args.output,
+], check=True)
+`);
+    const script = path.resolve('deploy/ai-presenter-video-replica/scripts/long_form_tts.py');
+    const ttsCommand = `python3 ${provider} --text {text} --output {output} --ffmpeg ${ffmpegPath}`;
+    await execFileAsync('python3', [
+      script,
+      '--input', input,
+      '--output', output,
+      '--checkpoint-dir', checkpoints,
+      '--provider', 'pause-regression',
+      '--cache-key', 'pause-regression-v1',
+      '--tts-command', ttsCommand,
+      '--max-chars', '200',
+      '--ffmpeg-bin', ffmpegPath,
+      '--ffprobe-bin', ffprobe.path,
+    ]);
+    const duration = Number(
+      (await execFileAsync(ffprobe.path, [
+        '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', output,
+      ])).stdout.trim(),
+    );
+    expect(duration).toBeGreaterThan(2.25);
+    expect(duration).toBeLessThan(2.75);
+  }, 20_000);
+
   it('invalidates cached chunks when the reference/model cache key changes', async () => {
     const directory = mkdtempSync(path.join(os.tmpdir(), 'long-form-tts-cache-'));
     temporaryDirectories.push(directory);

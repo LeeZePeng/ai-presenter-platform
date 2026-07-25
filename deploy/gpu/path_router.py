@@ -28,16 +28,10 @@ HOP_BY_HOP = {
 def route_request(
     path_qs: str,
     worker_ports: list[int],
-    qwen_tts_port: int | None = None,
 ) -> tuple[int, str]:
     path, separator, query = path_qs.partition("?")
     first, slash, remainder = path.lstrip("/").partition("/")
-    if first == "qwen-tts":
-        if qwen_tts_port is None:
-            raise web.HTTPNotFound(text="Qwen TTS service is not configured")
-        target_port = qwen_tts_port
-        target_path = f"/{remainder}" if slash else "/"
-    elif len(first) == 2 and first[0] == "w" and first[1].isdigit():
+    if len(first) == 2 and first[0] == "w" and first[1].isdigit():
         worker_index = int(first[1])
         if worker_index >= len(worker_ports):
             raise web.HTTPNotFound(text=f"Unknown GPU worker: {first}")
@@ -58,8 +52,7 @@ async def body_chunks(request: web.Request) -> AsyncIterator[bytes]:
 
 async def proxy(request: web.Request) -> web.StreamResponse:
     worker_ports: list[int] = request.app["worker_ports"]
-    qwen_tts_port: int | None = request.app["qwen_tts_port"]
-    target_port, target_path = route_request(request.path_qs, worker_ports, qwen_tts_port)
+    target_port, target_path = route_request(request.path_qs, worker_ports)
     target_url = f"http://127.0.0.1:{target_port}{target_path}"
     request_headers = {
         key: value
@@ -100,11 +93,9 @@ def main() -> None:
     parser.add_argument("--listen", default="0.0.0.0")
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--worker-ports", type=int, nargs="+", required=True)
-    parser.add_argument("--qwen-tts-port", type=int)
     args = parser.parse_args()
     app = web.Application(client_max_size=1024**4)
     app["worker_ports"] = args.worker_ports
-    app["qwen_tts_port"] = args.qwen_tts_port
     app.on_startup.append(create_session)
     app.on_cleanup.append(close_session)
     app.router.add_route("*", "/{path:.*}", proxy)

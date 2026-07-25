@@ -67,8 +67,9 @@ export const config = {
     comfyServer: workerUrl(presenterComfyUrl, index),
   })),
   qwenTts: {
-    baseUrl: env.QWEN_TTS_BASE_URL?.trim() || `${presenterApiUrl.replace(/\/$/, '')}/qwen-tts/v1`,
-    apiToken: env.QWEN_TTS_API_TOKEN?.trim() ?? '',
+    baseUrl: env.QWEN_TTS_BASE_URL?.trim() || 'https://dashscope.aliyuncs.com/api/v1',
+    apiToken: env.DASHSCOPE_API_KEY?.trim() ?? '',
+    model: env.QWEN_TTS_MODEL?.trim() || 'qwen3-tts-vc-2026-01-22',
   },
   remotionRuntimeDir: path.resolve(env.REMOTION_RUNTIME_DIR ?? '/var/lib/ai-presenter/runtime/remotion-4.0.490'),
   remotionSkillPath: path.resolve(

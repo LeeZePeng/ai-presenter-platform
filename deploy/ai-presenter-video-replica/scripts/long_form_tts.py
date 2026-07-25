@@ -105,9 +105,16 @@ def normalize_audio(
     true_peak: float,
     trim_edges: bool,
 ) -> None:
+    # `stop_periods=1` terminates the stream at the first natural pause.  Long
+    # chunks routinely contain more than one sentence, so that seemingly
+    # convenient form silently discarded everything after the first pause.
+    # Trim the tail by reversing it and applying the start-only filter instead;
+    # internal pauses remain byte-for-byte part of the programme audio.
     trim = (
-        'silenceremove=start_periods=1:start_duration=0.03:start_threshold=-42dB:start_silence=0.04:'
-        'stop_periods=1:stop_duration=0.08:stop_threshold=-42dB:stop_silence=0.12,'
+        'silenceremove=start_periods=1:start_duration=0.03:start_threshold=-42dB:start_silence=0.04,'
+        'areverse,'
+        'silenceremove=start_periods=1:start_duration=0.08:start_threshold=-42dB:start_silence=0.12,'
+        'areverse,'
         if trim_edges
         else ''
     )

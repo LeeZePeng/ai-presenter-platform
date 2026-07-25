@@ -26,6 +26,7 @@ type RunnerOptions = {
   goalMaxMs: number;
   skillPath: string;
   mock: boolean;
+  qwenTtsModel?: string;
 };
 
 type RunCallbacks = {
@@ -38,7 +39,7 @@ const secretNames = [
   'COMPSHARE_PRIVATE_KEY',
   'COMPSHARE_PUBLIC_KEY',
   'MODELVERSE_API_KEY',
-  'QWEN_TTS_API_TOKEN',
+  'DASHSCOPE_API_KEY',
   'HEYGEN_API_KEY',
   'OPENAI_API_KEY',
   'DEEPSEEK_API_KEY',
@@ -2265,8 +2266,9 @@ export class CodexRunner {
     if (manifest.narrationSha256 !== narrationSha256) throw new Error('最终旁白 SHA-256 与结果清单不一致');
     const preparedReferenceHash = String(job.metadata.voiceReferenceAudioSha256 ?? '');
     if (job.voiceMode === 'uploaded_reference' && /^[a-f0-9]{64}$/.test(preparedReferenceHash)) {
-      if (manifest.narrationProvider !== 'qwen3-tts-12hz-1.7b-base') {
-        throw new Error('参考音色任务没有使用 Qwen3-TTS Base 真实克隆');
+      const expectedQwenTtsModel = this.options.qwenTtsModel?.trim() || 'qwen3-tts-vc-2026-01-22';
+      if (manifest.narrationProvider !== expectedQwenTtsModel) {
+        throw new Error(`参考音色任务没有使用 ${expectedQwenTtsModel} 真实克隆`);
       }
       const voiceReference = resolveWorkspacePath(workspace, manifest.voiceReferencePath, 'voiceReferencePath');
       const expectedVoiceReference = path.join(workspace, 'out', 'audio', 'voice_reference_clean.wav');

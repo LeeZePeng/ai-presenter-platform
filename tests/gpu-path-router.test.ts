@@ -6,7 +6,7 @@ import {describe, it} from 'vitest';
 const execFileAsync = promisify(execFile);
 
 describe('GPU path router', () => {
-  it('keeps worker routing and strips the private Qwen prefix', async () => {
+  it('keeps all four GPU worker routes available for presenter generation', async () => {
     const router = path.resolve('deploy/gpu/path_router.py');
     const pythonTest = `
 import importlib.util
@@ -29,13 +29,11 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 ports = [18188, 18189, 18190, 18191]
-assert module.route_request('/prompt?x=1', ports, 18787) == (18188, '/prompt?x=1')
-assert module.route_request('/w2/history/abc', ports, 18787) == (18190, '/history/abc')
-assert module.route_request('/qwen-tts/v1/health', ports, 18787) == (18787, '/v1/health')
-assert module.route_request('/qwen-tts/v1/audio/voice-clone?preview=1', ports, 18787) == (18787, '/v1/audio/voice-clone?preview=1')
+assert module.route_request('/prompt?x=1', ports) == (18188, '/prompt?x=1')
+assert module.route_request('/w2/history/abc', ports) == (18190, '/history/abc')
 try:
-    module.route_request('/qwen-tts/v1/health', ports, None)
-    raise AssertionError('missing Qwen port should fail')
+    module.route_request('/w9/history/abc', ports)
+    raise AssertionError('unknown GPU worker should fail')
 except NotFound:
     pass
 `;

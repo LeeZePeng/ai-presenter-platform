@@ -94,7 +94,7 @@ const power = new PowerCoordinator(db, controller, {
   mockCodex: config.mockCodex,
   codexModel: config.codex.model,
 });
-const runner = new CodexRunner({...config.codex, mock: config.mockCodex});
+const runner = new CodexRunner({...config.codex, mock: config.mockCodex, qwenTtsModel: config.qwenTts.model});
 const transcriber = new SourceTranscriber(config.asr);
 const worker = new JobWorker(db, power, runner, transcriber, {
   jobsDir,
@@ -104,6 +104,7 @@ const worker = new JobWorker(db, power, runner, transcriber, {
   presenterWorkers: config.presenterWorkers,
   qwenTtsBaseUrl: config.qwenTts.baseUrl,
   qwenTtsApiToken: config.qwenTts.apiToken,
+  qwenTtsModel: config.qwenTts.model,
   remotionRuntimeDir: config.remotionRuntimeDir,
   remotionSkillPath: config.remotionSkillPath,
   remotionBrowserExecutable: config.remotionBrowserExecutable,
@@ -180,6 +181,7 @@ const secretValues = [
   config.compshare.publicKey,
   config.compshare.privateKey,
   process.env.MODELVERSE_API_KEY ?? '',
+  config.qwenTts.apiToken,
   process.env.HEYGEN_API_KEY ?? '',
   config.youtube.apiKey,
 ].filter((value) => value.length >= 6);
@@ -440,7 +442,11 @@ app.get('/api/admin/dashboard', async (_req, res, next) => {
   try {
     const [system, qwenTts] = await Promise.all([
       power.systemSnapshot(),
-      probeQwenTtsHealth({baseUrl: config.qwenTts.baseUrl, apiToken: config.qwenTts.apiToken}),
+      probeQwenTtsHealth({
+        baseUrl: config.qwenTts.baseUrl,
+        apiToken: config.qwenTts.apiToken,
+        model: config.qwenTts.model,
+      }),
     ]);
     res.json({
       system,
