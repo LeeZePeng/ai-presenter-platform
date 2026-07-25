@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.ai-presenter.tunnel-watchdog</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/yshtola/ai-presenter-platform/bin/tunnel-watchdog.sh</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StartInterval</key>
+  <integer>60</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>StandardOutPath</key>
+  <string>/Users/yshtola/ai-presenter-platform/logs/tunnel-watchdog.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/yshtola/ai-presenter-platform/logs/tunnel-watchdog.error.log</string>
+</dict>
+</plist>

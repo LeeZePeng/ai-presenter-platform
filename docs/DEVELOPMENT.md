@@ -855,9 +855,12 @@ curl -fsS http://127.0.0.1:4317/api/health
 curl -fsS https://aipresenterhub.com/api/health
 launchctl print gui/$(id -u)/com.ai-presenter.platform
 launchctl print gui/$(id -u)/com.ai-presenter.cloudflared
+launchctl print gui/$(id -u)/com.ai-presenter.tunnel-watchdog
 ```
 
 第一条验证应用，第二条同时验证 DNS、TLS 和 Tunnel。API 健康仍不代表 GPU、Codex、TTS 或 InfiniteTalk 全链路可用；完整检查还应查看 `/api/admin/dashboard` 的实例状态、`lastPowerError` 和最近任务。
+
+`com.ai-presenter.tunnel-watchdog` 每分钟同时检查本机与公网健康接口。本机正常而公网连续两次失败时，它只重启 `cloudflared`，并设置 3 分钟冷却时间，避免网络抖动造成频繁重启；它不会重启后端或中断正在执行的视频任务。
 
 若公网返回 Cloudflare 1033、而本机健康检查正常，并且 Tunnel 日志显示边缘地址为 `198.18.0.x` 后出现 TLS EOF/reset，说明本机代理的 fake-IP DNS 污染了 cloudflared 边缘解析。固定服务必须使用 `--edge-ip-version 4`，并把 `--dns-resolver-addrs 1.1.1.1:53` 放在 `tunnel run` 子命令之后；修改 LaunchAgent 后重新 bootstrap，再同时验证本机和公网健康接口。
 
@@ -868,6 +871,7 @@ tail -n 300 /Users/yshtola/ai-presenter-platform/logs/ai-presenter.log
 tail -n 300 /Users/yshtola/ai-presenter-platform/logs/ai-presenter.error.log
 tail -n 200 /Users/yshtola/ai-presenter-platform/logs/cloudflared.log
 tail -n 200 /Users/yshtola/ai-presenter-platform/logs/cloudflared.error.log
+tail -n 200 /Users/yshtola/ai-presenter-platform/logs/tunnel-watchdog.log
 tail -n 200 /Users/yshtola/ai-presenter-platform/data/deployment.log
 ```
 
