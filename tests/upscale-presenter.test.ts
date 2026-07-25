@@ -87,4 +87,35 @@ assert attempts == {1: 1, 2: 1, 3: 2, 4: 1}, attempts
 `;
     await execFileAsync('python3', ['-c', pythonTest, script]);
   });
+
+  it('keeps polling the same ComfyUI prompt across transient history errors', async () => {
+    const script = path.resolve('deploy/ai-presenter-video-replica/scripts/upscale_presenter_segments.py');
+    const pythonTest = `
+import importlib.util, io, sys, urllib.error
+
+spec = importlib.util.spec_from_file_location('upscale_presenter_segments', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+responses = [
+    urllib.error.HTTPError('http://gpu/history/prompt-1', 500, 'temporary', {}, io.BytesIO()),
+    {},
+    {'prompt-1': {'status': {'completed': True}, 'outputs': {}}},
+]
+calls = []
+
+def fake_http_json(base, route, payload=None, timeout=120):
+    calls.append(route)
+    response = responses.pop(0)
+    if isinstance(response, Exception):
+        raise response
+    return response
+
+module.http_json = fake_http_json
+module.time.sleep = lambda _: None
+entry = module.wait_for_output('http://gpu', 'prompt-1', 0, 3)
+assert entry['status']['completed'] is True
+assert calls == ['/history/prompt-1'] * 3, calls
+`;
+    await execFileAsync('python3', ['-c', pythonTest, script]);
+  });
 });

@@ -12,6 +12,7 @@ import os
 import queue
 import subprocess
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
@@ -184,8 +185,20 @@ def workflow(
 
 
 def wait_for_output(base: str, prompt_id: str, poll_seconds: float, max_polls: int) -> dict:
+    last_transient_error: Exception | None = None
     for _ in range(max_polls):
-        history = http_json(base, f"/history/{urllib.parse.quote(prompt_id)}", timeout=60)
+        try:
+            history = http_json(base, f"/history/{urllib.parse.quote(prompt_id)}", timeout=60)
+        except urllib.error.HTTPError as error:
+            if error.code not in {408, 425, 429, 500, 502, 503, 504}:
+                raise
+            last_transient_error = error
+            time.sleep(poll_seconds)
+            continue
+        except (urllib.error.URLError, TimeoutError) as error:
+            last_transient_error = error
+            time.sleep(poll_seconds)
+            continue
         if prompt_id in history:
             entry = history[prompt_id]
             status = entry.get("status", {})
@@ -193,7 +206,8 @@ def wait_for_output(base: str, prompt_id: str, poll_seconds: float, max_polls: i
                 raise RuntimeError(f"ComfyUI upscale failed: {status.get('messages', [])[-3:]}")
             return entry
         time.sleep(poll_seconds)
-    raise TimeoutError(f"Timed out waiting for upscale prompt {prompt_id}")
+    detail = f"; last transient error: {last_transient_error}" if last_transient_error else ""
+    raise TimeoutError(f"Timed out waiting for upscale prompt {prompt_id}{detail}")
 
 
 def download_output(base: str, entry: dict, destination: Path) -> None:
