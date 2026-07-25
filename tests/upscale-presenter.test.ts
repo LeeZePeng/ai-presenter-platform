@@ -26,11 +26,40 @@ module.upscale_one = fake_upscale
 receipts = module.run_upscale_jobs(
     [pathlib.Path(str(index)) for index in range(5)],
     ['slow', 'fast'],
-    SimpleNamespace(),
+    SimpleNamespace(segment_retries=0, retry_backoff_seconds=0),
 )
 assert len(receipts) == 5
 assert counts == {'slow': 1, 'fast': 4}, counts
 assert [receipt['index'] for receipt in receipts] == [1, 2, 3, 4, 5]
+`;
+    await execFileAsync('python3', ['-c', pythonTest, script]);
+  });
+
+  it('retries a failed segment without discarding completed segment results', async () => {
+    const script = path.resolve('deploy/ai-presenter-video-replica/scripts/upscale_presenter_segments.py');
+    const pythonTest = `
+import importlib.util, pathlib, sys
+from types import SimpleNamespace
+
+spec = importlib.util.spec_from_file_location('upscale_presenter_segments', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+attempts = {}
+
+def flaky_upscale(source, index, server, args):
+    attempts[index] = attempts.get(index, 0) + 1
+    if index == 3 and attempts[index] == 1:
+        raise RuntimeError('temporary provider disconnect')
+    return {'outputPath': str(source), 'server': server, 'index': index}
+
+module.upscale_one = flaky_upscale
+receipts = module.run_upscale_jobs(
+    [pathlib.Path(str(index)) for index in range(4)],
+    ['gpu-0', 'gpu-1'],
+    SimpleNamespace(segment_retries=2, retry_backoff_seconds=0),
+)
+assert [receipt['index'] for receipt in receipts] == [1, 2, 3, 4]
+assert attempts == {1: 1, 2: 1, 3: 2, 4: 1}, attempts
 `;
     await execFileAsync('python3', ['-c', pythonTest, script]);
   });

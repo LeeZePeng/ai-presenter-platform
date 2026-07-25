@@ -314,11 +314,21 @@ def run_upscale_jobs(inputs: list[Path], servers: list[str], args: argparse.Name
 
     def process(index_and_source: tuple[int, Path]) -> dict:
         index, source = index_and_source
-        server = available_workers.get()
-        try:
-            return upscale_one(source, index, server, args)
-        finally:
-            available_workers.put(server)
+        attempts = max(1, int(getattr(args, "segment_retries", 3)) + 1)
+        last_error: Exception | None = None
+        for attempt in range(attempts):
+            server = available_workers.get()
+            try:
+                return upscale_one(source, index, server, args)
+            except Exception as error:  # noqa: BLE001 - preserve the last provider error after bounded retries
+                last_error = error
+            finally:
+                available_workers.put(server)
+            if attempt + 1 < attempts:
+                time.sleep(float(getattr(args, "retry_backoff_seconds", 1.0)) * (2 ** attempt))
+        raise RuntimeError(
+            f"Presenter upscale segment {index} failed after {attempts} attempts: {last_error}"
+        ) from last_error
 
     with concurrent.futures.ThreadPoolExecutor(
         max_workers=min(len(inputs), len(servers)),
@@ -341,12 +351,14 @@ def main() -> int:
     parser.add_argument("--per-batch", type=int, default=4)
     parser.add_argument("--poll-seconds", type=float, default=5)
     parser.add_argument("--max-polls", type=int, default=360)
+    parser.add_argument("--segment-retries", type=int, default=3)
+    parser.add_argument("--retry-backoff-seconds", type=float, default=1)
     parser.add_argument("--ffmpeg-bin", default="ffmpeg")
     parser.add_argument("--ffprobe-bin", default="ffprobe")
     args = parser.parse_args()
     if args.width < 256 or args.height < 256 or args.width % 2 or args.height % 2:
         parser.error("--width and --height must be even and at least 256")
-    if args.chunk_seconds <= 0 or args.per_batch <= 0:
+    if args.chunk_seconds <= 0 or args.per_batch <= 0 or args.segment_retries < 0 or args.retry_backoff_seconds < 0:
         parser.error("chunk and batch settings must be positive")
 
     receipts = run_upscale_jobs(args.inputs, args.servers, args)
