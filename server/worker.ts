@@ -17,6 +17,7 @@ import type {CodexRunner} from './codex-runner.js';
 import type {SourceTranscriber} from './asr.js';
 import {buildCodexPrompt} from './prompt.js';
 import {prepareVoiceReference} from './voice-reference.js';
+import {waitForQwenTtsReady} from './qwen-tts-health.js';
 import type {JobRecord} from './types.js';
 
 type WorkerOptions = {
@@ -26,6 +27,7 @@ type WorkerOptions = {
   presenterComfyUrl: string;
   presenterWorkers: Array<{server: string; comfyServer: string}>;
   qwenTtsBaseUrl: string;
+  qwenTtsApiToken: string;
   remotionRuntimeDir: string;
   remotionSkillPath: string;
   remotionBrowserExecutable: string;
@@ -291,6 +293,7 @@ export class JobWorker {
       let voiceReferenceCleanPath: string | undefined;
       let voiceReferenceTranscriptPath: string | undefined;
       if (job.voiceMode === 'uploaded_reference' && !visualRepairOnly && !reusePresenterRender) {
+        if (!this.options.qwenTtsApiToken) throw new Error('参考音色服务尚未配置，管理员需要先部署 Qwen3-TTS');
         if (!job.assets.voiceReference) throw new Error('参考音色任务缺少声音文件');
         const reusableVoiceReference =
           typeof job.metadata.voiceReferenceCleanPath === 'string' &&
@@ -417,6 +420,29 @@ export class JobWorker {
       } else {
         this.db.addEvent(job.id, 'info', 'power', '正在确认 GPU 实例状态');
         await this.power.ensureRunning(`任务 ${job.id.slice(0, 8)} 开始执行`);
+        if (job.voiceMode === 'uploaded_reference') {
+          this.db.updateJob(job.id, {status: 'provisioning', stage: '等待 Qwen 参考音色服务', progress: 18});
+          this.db.addEvent(job.id, 'info', 'qwen_tts_waiting', 'GPU 已就绪，正在等待 Qwen 参考音色模型加载');
+          let lastStatus = '';
+          const qwenTts = await waitForQwenTtsReady({
+            baseUrl: this.options.qwenTtsBaseUrl,
+            apiToken: this.options.qwenTtsApiToken,
+            readyTimeoutMs: 10 * 60 * 1000,
+            isCancelled: () => this.db.isCancelRequested(job.id),
+            onStatus: (snapshot) => {
+              if (snapshot.status === lastStatus) return;
+              lastStatus = snapshot.status;
+              this.db.addEvent(job.id, 'info', 'qwen_tts_status', snapshot.message, {
+                status: snapshot.status,
+                model: snapshot.model,
+              });
+            },
+          });
+          if (qwenTts.status !== 'ready') {
+            throw new Error(`Qwen 参考音色服务未就绪：${qwenTts.message}`);
+          }
+          this.db.addEvent(job.id, 'info', 'qwen_tts_ready', 'Qwen3-TTS Base 已就绪，将严格使用上传参考音色');
+        }
       }
       if (this.db.isCancelRequested(job.id)) throw new Error('任务已取消');
 

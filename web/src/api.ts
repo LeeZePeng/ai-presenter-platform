@@ -111,7 +111,7 @@ export type AdminDashboard = {
   system: SystemSnapshot;
   qwenTts: {
     configured: boolean;
-    status: 'unconfigured' | 'loading' | 'ready' | 'unavailable';
+    status: 'unconfigured' | 'loading' | 'ready' | 'unavailable' | 'misconfigured';
     model: string | null;
     message: string;
   };
