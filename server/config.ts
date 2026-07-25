@@ -201,10 +201,12 @@ export const assertProductionConfiguration = (): void => {
       .filter(([, value]) => !value)
       .map(([name]) => name);
     if (missingRuntime.length) throw new Error(`Real GPU mode requires: ${missingRuntime.join(', ')}`);
+    const localAsrFiles = config.asr.provider === 'local' || config.asr.localFallback
+      ? {ASR_BIN: config.asr.bin, ASR_MODEL: config.asr.model}
+      : {};
     const missingFiles = Object.entries({
       PYTHON_BIN: config.pythonBin,
-      ASR_BIN: config.asr.bin,
-      ASR_MODEL: config.asr.model,
+      ...localAsrFiles,
       FFMPEG_BIN: config.asr.ffmpegBin,
       REMOTION_BROWSER_EXECUTABLE: config.remotionBrowserExecutable,
       REMOTION_CLI: path.join(config.remotionRuntimeDir, 'node_modules', '.bin', 'remotion'),

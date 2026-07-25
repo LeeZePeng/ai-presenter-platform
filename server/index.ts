@@ -571,12 +571,42 @@ app.get('/api/admin/jobs/:id/result', (req, res) => sendJobResult(req.params.id,
 app.get('/api/admin/jobs/:id/delivery', (req, res) => sendJobDelivery(req.params.id, res));
 app.get('/api/admin/jobs/:id/cover', (req, res) => sendJobCover(req.params.id, req, res));
 
-app.post('/api/admin/power/start', async (_req, res, next) => {
+app.post('/api/admin/power/start', async (req, res, next) => {
   try {
-    res.json(await power.manualStart());
+    const leaseSeconds = req.body?.leaseSeconds === undefined ? 0 : Number(req.body.leaseSeconds);
+    if (
+      !Number.isFinite(leaseSeconds) ||
+      leaseSeconds < 0 ||
+      (leaseSeconds > 0 && leaseSeconds < 5 * 60) ||
+      leaseSeconds > 12 * 60 * 60
+    ) {
+      return res.status(400).json({error: 'leaseSeconds 必须是 0，或 300 到 43200 之间的秒数'});
+    }
+    res.json(await power.manualStart({
+      leaseMs: leaseSeconds * 1000,
+      reason: typeof req.body?.reason === 'string' ? req.body.reason : '管理员手动任务',
+    }));
   } catch (error) {
     next(error);
   }
+});
+
+app.post('/api/admin/power/lease', (req, res, next) => {
+  try {
+    const leaseSeconds = Number(req.body?.leaseSeconds);
+    const lease = power.acquireExternalLease(
+      leaseSeconds * 1000,
+      typeof req.body?.reason === 'string' ? req.body.reason : '平台外任务',
+    );
+    res.json({ok: true, lease});
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/admin/power/lease', (_req, res) => {
+  power.releaseExternalLease();
+  res.json({ok: true});
 });
 
 app.post('/api/admin/power/stop', async (_req, res, next) => {

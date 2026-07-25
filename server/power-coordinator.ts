@@ -55,6 +55,41 @@ export class PowerCoordinator {
     this.db.setRuntime('last_power_error', error instanceof Error ? error.message : String(error));
   }
 
+  private getActiveExternalLease(): {untilMs: number; reason: string} | null {
+    const untilMs = Number(this.db.getRuntime('external_power_lease_until') ?? 0);
+    if (!Number.isFinite(untilMs) || untilMs <= this.now()) {
+      if (untilMs) {
+        this.db.setRuntime('external_power_lease_until', null);
+        this.db.setRuntime('external_power_lease_reason', null);
+      }
+      return null;
+    }
+    return {
+      untilMs,
+      reason: this.db.getRuntime('external_power_lease_reason') || '平台外任务',
+    };
+  }
+
+  acquireExternalLease(durationMs: number, reason = '平台外任务'): {until: string; reason: string} {
+    if (!Number.isFinite(durationMs) || durationMs < 5 * 60 * 1000 || durationMs > 12 * 60 * 60 * 1000) {
+      throw new Error('算力保留时间必须在 5 分钟到 12 小时之间');
+    }
+    const existing = this.getActiveExternalLease();
+    const untilMs = Math.max(existing?.untilMs ?? 0, this.now() + durationMs);
+    const normalizedReason = reason.trim().slice(0, 120) || '平台外任务';
+    this.db.setRuntime('external_power_lease_until', String(untilMs));
+    this.db.setRuntime('external_power_lease_reason', normalizedReason);
+    this.ensureWindow(this.now());
+    this.setAction(`${normalizedReason} 已登记，算力保留至 ${new Date(untilMs).toISOString()}`);
+    return {until: new Date(untilMs).toISOString(), reason: normalizedReason};
+  }
+
+  releaseExternalLease(): void {
+    this.db.setRuntime('external_power_lease_until', null);
+    this.db.setRuntime('external_power_lease_reason', null);
+    this.setAction('平台外任务算力保留已解除');
+  }
+
   private async describeInstance(): Promise<InstanceSnapshot> {
     try {
       return await this.controller.describe();
@@ -184,12 +219,17 @@ export class PowerCoordinator {
       if (!nextAt || this.now() < nextAt) return;
 
       const activeJobs = this.db.countActiveJobs();
+      const externalLease = this.getActiveExternalLease();
       const instance = await this.describeInstance();
-      if (activeJobs > 0) {
+      if (activeJobs > 0 || externalLease) {
         let next = nextAt;
         while (next <= this.now()) next += this.options.windowMs;
         this.db.setRuntime('next_power_check_at', String(next));
-        this.setAction(`时间片到期，但仍有 ${activeJobs} 个任务，实例继续运行一小时`);
+        this.setAction(
+          activeJobs > 0
+            ? `时间片到期，但仍有 ${activeJobs} 个任务，实例继续运行一小时`
+            : `时间片到期，但“${externalLease?.reason}”仍在算力保留期，实例继续运行一小时`,
+        );
         return;
       }
 
@@ -231,19 +271,26 @@ export class PowerCoordinator {
       queue: this.db.queueSummary(),
       billingWindowStartedAt: this.db.getRuntime('billing_window_started_at'),
       nextPowerCheckAt: next ? new Date(next).toISOString() : null,
+      externalPowerLeaseUntil: this.getActiveExternalLease()
+        ? new Date(Number(this.db.getRuntime('external_power_lease_until'))).toISOString()
+        : null,
+      externalPowerLeaseReason: this.db.getRuntime('external_power_lease_reason'),
       lastPowerAction: this.db.getRuntime('last_power_action'),
       lastPowerError: this.db.getRuntime('last_power_error'),
       codexModel: this.options.codexModel,
     };
   }
 
-  manualStart(): Promise<InstanceSnapshot> {
+  manualStart(options?: {leaseMs?: number; reason?: string}): Promise<InstanceSnapshot> {
+    if (options?.leaseMs) this.acquireExternalLease(options.leaseMs, options.reason || '管理员手动任务');
     return this.ensureRunning('管理员手动启动');
   }
 
   manualStop(): Promise<void> {
     return this.withLock(async () => {
       if (this.db.countActiveJobs() > 0) throw new Error('仍有排队或运行任务，不能手动关机');
+      this.db.setRuntime('external_power_lease_until', null);
+      this.db.setRuntime('external_power_lease_reason', null);
       const instance = await this.describeInstance();
       if (instance.state === 'Running') await this.controller.stop();
       this.db.setRuntime('billing_window_started_at', null);

@@ -119,4 +119,63 @@ describe('PowerCoordinator', () => {
     expect(controller.state).toBe('Stopped');
     expect(db.getRuntime('next_power_check_at')).toBeNull();
   });
+
+  it('keeps an instance running for a registered external task even when the queue is empty', async () => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'presenter-power-'));
+    directories.push(directory);
+    const db = new AppDatabase(path.join(directory, 'db.sqlite'));
+    const controller = new ImmediateController();
+    let clock = 1_000_000;
+    controller.nowSeconds = Math.floor(clock / 1000);
+    const power = new PowerCoordinator(
+      db,
+      controller,
+      {
+        windowMs: 1000,
+        tickMs: 50,
+        startTimeoutMs: 1000,
+        healthUrl: '',
+        mockGpu: true,
+        mockCodex: true,
+        codexModel: 'test-model',
+      },
+      () => clock,
+    );
+
+    await power.manualStart({leaseMs: 5 * 60 * 1000, reason: '断点续跑'});
+    clock += 1100;
+    await power.checkBillingBoundary();
+    expect(controller.stops).toBe(0);
+    expect(db.getRuntime('external_power_lease_reason')).toBe('断点续跑');
+    expect(Number(db.getRuntime('next_power_check_at'))).toBeGreaterThan(clock);
+
+    clock = Number(db.getRuntime('external_power_lease_until')) + 1;
+    clock = Math.max(clock, Number(db.getRuntime('next_power_check_at')) + 1);
+    await power.checkBillingBoundary();
+    expect(controller.stops).toBe(1);
+    expect(db.getRuntime('external_power_lease_until')).toBeNull();
+    expect(db.getRuntime('next_power_check_at')).toBeNull();
+  });
+
+  it('manual stop releases an external task lease', async () => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'presenter-power-'));
+    directories.push(directory);
+    const db = new AppDatabase(path.join(directory, 'db.sqlite'));
+    const controller = new ImmediateController();
+    const power = new PowerCoordinator(db, controller, {
+      windowMs: 1000,
+      tickMs: 50,
+      startTimeoutMs: 1000,
+      healthUrl: '',
+      mockGpu: true,
+      mockCodex: true,
+      codexModel: 'test-model',
+    });
+
+    await power.manualStart({leaseMs: 5 * 60 * 1000, reason: '手动生成'});
+    await power.manualStop();
+    expect(controller.stops).toBe(1);
+    expect(db.getRuntime('external_power_lease_until')).toBeNull();
+    expect(db.getRuntime('external_power_lease_reason')).toBeNull();
+  });
 });

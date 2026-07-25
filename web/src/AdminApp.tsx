@@ -313,7 +313,12 @@ export const AdminApp = () => {
     if (nextAction === 'stop' && !window.confirm('确认关闭实例？存在活动请求时服务会拒绝关机。')) return;
     setAction(nextAction);
     try {
-      await api(`/api/admin/power/${nextAction}`, {method: 'POST'});
+      await api(`/api/admin/power/${nextAction}`, {
+        method: 'POST',
+        body: nextAction === 'start'
+          ? JSON.stringify({leaseSeconds: 6 * 60 * 60, reason: '管理员手动任务'})
+          : undefined,
+      });
       await refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -468,6 +473,7 @@ export const AdminApp = () => {
                 <div><dt>小时价格</dt><dd>{system?.instance.hourlyPrice != null ? `¥${system.instance.hourlyPrice.toFixed(2)}` : '—'}</dd></div>
                 <div><dt>时间片开始</dt><dd>{formatTime(system?.billingWindowStartedAt ?? null)}</dd></div>
                 <div><dt>下次检测</dt><dd>{formatTime(system?.nextPowerCheckAt ?? null, true)}</dd></div>
+                <div><dt>算力保留</dt><dd>{system?.externalPowerLeaseUntil ? formatTime(system.externalPowerLeaseUntil, true) : '未启用'}<small>{system?.externalPowerLeaseReason || '仅跟随平台任务自动续时'}</small></dd></div>
                 <div><dt>队列</dt><dd>{system?.queue.pending ?? 0} 等待 / {system?.queue.active ?? 0} 运行</dd></div>
                 <div><dt>参考音色</dt><dd>{dashboard?.qwenTts.message || '读取中'}<small>{dashboard?.qwenTts.model || 'Qwen3-TTS Base'}</small></dd></div>
               </dl>
@@ -479,7 +485,7 @@ export const AdminApp = () => {
               )}
               <div className="instance-actions">
                 <button className="primary" disabled={Boolean(action) || ['Running', 'Starting'].includes(instanceState)} onClick={() => void powerAction('start')}>
-                  {action === 'start' ? <LoaderCircle className="spin" size={17} /> : <Power size={17} />}启动实例
+                  {action === 'start' ? <LoaderCircle className="spin" size={17} /> : <Power size={17} />}启动并保留 6 小时
                 </button>
                 <button className="secondary danger" disabled={Boolean(action) || ['Stopped', 'Stopping'].includes(instanceState)} onClick={() => void powerAction('stop')}>
                   {action === 'stop' ? <LoaderCircle className="spin" size={17} /> : <CircleStop size={17} />}关闭实例

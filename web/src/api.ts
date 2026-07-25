@@ -80,6 +80,8 @@ export type SystemSnapshot = {
   queue: {pending: number; active: number; total: number};
   billingWindowStartedAt: string | null;
   nextPowerCheckAt: string | null;
+  externalPowerLeaseUntil: string | null;
+  externalPowerLeaseReason: string | null;
   lastPowerAction: string | null;
   lastPowerError: string | null;
   codexModel: string;
