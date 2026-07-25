@@ -500,7 +500,36 @@ describe('inspectArtifactProgress', () => {
     expect(inspectArtifactProgress(workspace)).toMatchObject({
       key: 'presenter-track-ready',
       stage: '编排字幕与 UI',
-      progress: 78,
+      progress: 79,
+    });
+  });
+
+  it('reports real HD presenter segments and chunks instead of a frozen generic stage', () => {
+    const workspace = mkdtempSync(path.join(os.tmpdir(), 'presenter-upscale-progress-'));
+    const infiniteTalk = path.join(workspace, 'out', 'checkpoints', 'infinite_talk');
+    const checkpoints = path.join(workspace, 'out', 'checkpoints', 'presenter-upscale');
+    const renders = path.join(workspace, 'remotion', 'public', 'presenter', 'render');
+    mkdirSync(infiniteTalk, {recursive: true});
+    mkdirSync(path.join(checkpoints, 'segment-010'), {recursive: true});
+    mkdirSync(renders, {recursive: true});
+    writeFileSync(
+      path.join(infiniteTalk, 'segments.json'),
+      JSON.stringify({segment_plan: Array.from({length: 24}, (_, index) => ({index}))}),
+    );
+    for (let index = 1; index <= 49; index += 1) {
+      writeFileSync(path.join(checkpoints, 'segment-010', `chunk-${String(index).padStart(3, '0')}.mp4`), Buffer.alloc(2048));
+    }
+    for (let index = 1; index <= 9; index += 1) {
+      writeFileSync(path.join(renders, `segment-${String(index).padStart(3, '0')}.mp4`), Buffer.alloc(2048));
+    }
+
+    expect(inspectArtifactProgress(workspace)).toMatchObject({
+      key: 'presenter-upscale-9-24-49',
+      kind: 'presenter_upscale_progress',
+      message: '数字人高清增强 9/24 段，已保存 49 个分块',
+      stage: '数字人高清增强 9/24',
+      progress: 77,
+      data: {completed: 9, total: 24, chunks: 49},
     });
   });
 

@@ -8,11 +8,13 @@ const hiddenCodexKinds = new Set([
 
 export type PublicJobEvent = Omit<JobEvent, 'data'>;
 
+export const isUserFacingEvent = (event: Pick<JobEvent, 'kind' | 'data'>): boolean => {
+  if (hiddenCodexKinds.has(event.kind)) return false;
+  if (!/^(?:item|thread|turn)\./.test(event.kind)) return true;
+  return event.kind === 'item.completed' && event.data.itemType === 'agent_message';
+};
+
 export const publicEvents = (events: JobEvent[]): PublicJobEvent[] =>
   events
-    .filter((event) => !hiddenCodexKinds.has(event.kind))
-    .filter((event) => {
-      if (!/^(?:item|thread|turn)\./.test(event.kind)) return true;
-      return event.kind === 'item.completed' && event.data.itemType === 'agent_message';
-    })
+    .filter(isUserFacingEvent)
     .map(({data: _data, ...event}) => event);

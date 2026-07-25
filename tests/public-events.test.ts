@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {publicEvents} from '../server/public-events.js';
+import {isUserFacingEvent, publicEvents} from '../server/public-events.js';
 import type {JobEvent} from '../server/types.js';
 
 const event = (id: number, kind: string, message: string, data: Record<string, unknown> = {}): JobEvent => ({
@@ -35,5 +35,10 @@ describe('publicEvents', () => {
 
   it('hides historical untyped item.completed events instead of leaking commands', () => {
     expect(publicEvents([event(1, 'item.completed', 'ffmpeg -i source.mp4 out.mp4')])).toEqual([]);
+  });
+
+  it('exposes the same filter for the administrator event stream', () => {
+    expect(isUserFacingEvent(event(1, 'item.completed', 'python3 internal.py', {itemType: 'command_execution'}))).toBe(false);
+    expect(isUserFacingEvent(event(2, 'presenter_upscale_progress', '数字人高清增强 9/24'))).toBe(true);
   });
 });

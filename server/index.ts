@@ -17,7 +17,7 @@ import {SourceTranscriber} from './asr.js';
 import {JobWorker} from './worker.js';
 import {isExactReplicaAudioDurationCompatible, parseJobInput} from './validation.js';
 import {createFullRegenerationJob, createRetryJob, RetryJobError} from './retry.js';
-import {publicEvents} from './public-events.js';
+import {isUserFacingEvent, publicEvents} from './public-events.js';
 import {YouTubeService} from './youtube.js';
 import {DeploymentManager} from './deployment.js';
 import {probeQwenTtsHealth} from './qwen-tts-health.js';
@@ -199,8 +199,8 @@ const redactAdminValue = (value: unknown): unknown => {
   }
   return value;
 };
-const adminEvents = <T extends {data: Record<string, unknown>}>(events: T[]) =>
-  events.map((event) => ({...event, data: redactAdminValue(event.data)}));
+const adminEvents = <T extends {kind: string; data: Record<string, unknown>}>(events: T[]) =>
+  events.filter(isUserFacingEvent).map((event) => ({...event, data: redactAdminValue(event.data)}));
 
 const streamJobEvents = (
   jobId: string,

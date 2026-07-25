@@ -1577,8 +1577,49 @@ export const inspectArtifactProgress = (workspace: string): ArtifactProgress | n
       kind: 'presenter_track_ready',
       message: '数字人口型已合并为单一解码轨道，开始编排字幕与 UI',
       stage: '编排字幕与 UI',
-      progress: 78,
+      progress: 79,
     };
+  }
+
+  const upscaleCheckpointDir = path.join(out, 'checkpoints', 'presenter-upscale');
+  const presenterRenderDir = path.join(workspace, 'remotion', 'public', 'presenter', 'render');
+  const upscaleSegmentsPath = path.join(out, 'checkpoints', 'infinite_talk', 'segments.json');
+  if (existsSync(upscaleSegmentsPath) && (existsSync(upscaleCheckpointDir) || existsSync(presenterRenderDir))) {
+    try {
+      const manifest = JSON.parse(readFileSync(upscaleSegmentsPath, 'utf8')) as {segment_plan?: unknown};
+      const total = Array.isArray(manifest.segment_plan) ? manifest.segment_plan.length : 0;
+      const completed = existsSync(presenterRenderDir)
+        ? readdirSync(presenterRenderDir).filter((entry) => {
+            if (!/^segment-\d+\.mp4$/.test(entry)) return false;
+            const filename = path.join(presenterRenderDir, entry);
+            return statSync(filename).size > 1024;
+          }).length
+        : 0;
+      let chunks = 0;
+      if (existsSync(upscaleCheckpointDir)) {
+        for (const entry of readdirSync(upscaleCheckpointDir, {withFileTypes: true})) {
+          if (!entry.isDirectory() || !/^segment-\d+$/.test(entry.name)) continue;
+          const directory = path.join(upscaleCheckpointDir, entry.name);
+          chunks += readdirSync(directory).filter((filename) => {
+            if (!/^chunk-\d+\.mp4$/.test(filename)) return false;
+            return statSync(path.join(directory, filename)).size > 1024;
+          }).length;
+        }
+      }
+      if (total > 0 && (completed > 0 || chunks > 0)) {
+        const bounded = Math.min(completed, total);
+        return {
+          key: `presenter-upscale-${bounded}-${total}-${chunks}`,
+          kind: 'presenter_upscale_progress',
+          message: `数字人高清增强 ${bounded}/${total} 段${chunks ? `，已保存 ${chunks} 个分块` : ''}`,
+          stage: `数字人高清增强 ${bounded}/${total}`,
+          progress: 76 + Math.min(2, Math.floor((bounded / total) * 3)),
+          data: {completed: bounded, total, chunks},
+        };
+      }
+    } catch {
+      // Ignore a manifest or checkpoint that is being atomically replaced.
+    }
   }
 
   if (
