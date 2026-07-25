@@ -7,7 +7,10 @@ export const voiceReferenceFilter = [
   'highpass=f=70',
   'lowpass=f=14000',
   'afftdn=nr=10:nf=-45:tn=1',
-  'silenceremove=start_periods=1:start_duration=0.03:start_threshold=-48dB:start_silence=0.04:stop_periods=1:stop_duration=0.08:stop_threshold=-48dB:stop_silence=0.08',
+  'silenceremove=start_periods=1:start_duration=0.03:start_threshold=-48dB:start_silence=0.04',
+  'areverse',
+  'silenceremove=start_periods=1:start_duration=0.08:start_threshold=-48dB:start_silence=0.08',
+  'areverse',
   'loudnorm=I=-20:TP=-3:LRA=7',
 ].join(',');
 
