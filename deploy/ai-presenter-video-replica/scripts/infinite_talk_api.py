@@ -9,6 +9,7 @@ import concurrent.futures
 import hashlib
 import json
 import mimetypes
+import queue
 import random
 import re
 import subprocess
@@ -153,19 +154,32 @@ def add_bool_arg(parser: argparse.ArgumentParser, name: str, default: bool, help
 
 def http_json(base: str, path: str, payload: dict | None = None, timeout: int = 120) -> dict:
     body = None if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(
-        base.rstrip("/") + path,
-        data=body,
-        method="GET" if payload is None else "POST",
-        headers={"Content-Type": "application/json"} if payload is not None else {},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            data = response.read()
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        raise SystemExit(f"HTTP {exc.code} {path}: {detail[:2000]}") from exc
-    return json.loads(data.decode("utf-8"))
+    method = "GET" if payload is None else "POST"
+    # Health, history, and queue reads are idempotent.  ComfyUI occasionally
+    # closes a keep-alive connection while a long GPU prompt is running, so a
+    # single transient disconnect must not retire an otherwise healthy worker.
+    # POSTs deliberately stay single-attempt: retrying an accepted prompt after
+    # losing its response could submit the same expensive generation twice.
+    attempts = 4 if method == "GET" else 1
+    for attempt in range(attempts):
+        req = urllib.request.Request(
+            base.rstrip("/") + path,
+            data=body,
+            method=method,
+            headers={"Content-Type": "application/json"} if payload is not None else {},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                data = response.read()
+            return json.loads(data.decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise SystemExit(f"HTTP {exc.code} {path}: {detail[:2000]}") from exc
+        except (ConnectionError, OSError, TimeoutError, urllib.error.URLError):
+            if attempt + 1 >= attempts:
+                raise
+            time.sleep(min(3.0, 0.5 * (2**attempt)))
+    raise AssertionError("unreachable")
 
 
 def multipart_upload(base: str, paths: list[Path]) -> list[str]:
@@ -727,7 +741,9 @@ def segmented_submit(args: argparse.Namespace) -> dict:
             "promptIds": [str(record["prompt_id"]) for record in ordered],
             "output": str(args.output_video.resolve()),
         }
-        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2))
+        temporary_manifest = manifest_path.with_name(f".{manifest_path.name}.tmp")
+        temporary_manifest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2))
+        temporary_manifest.replace(manifest_path)
 
     def process_segment(
         index: int,
@@ -837,13 +853,59 @@ def segmented_submit(args: argparse.Namespace) -> dict:
             "prompt_id": prompt_id,
         }
 
-    def process_worker(worker_index: int, items: list[tuple[int, float, float]]) -> None:
+    pending_by_worker: list[list[tuple[int, float, float]]] = [[] for _ in workers]
+    shared_items: queue.Queue[tuple[int, float, float]] = queue.Queue()
+    for index, (start, segment_duration) in enumerate(segments, start=1):
+        item = (index, start, segment_duration)
+        segment_dir = checkpoint_dir / "segments" / f"segment-{index:03d}"
+        pending_path = segment_dir / "pending_prompt.json"
+        worker_path = segment_dir / "worker.json"
+        pinned_worker: int | None = None
+        if pending_path.exists() and worker_path.exists():
+            try:
+                recorded_worker = json.loads(worker_path.read_text())
+                recorded_pair = (
+                    str(recorded_worker.get("server") or "").rstrip("/"),
+                    str(recorded_worker.get("comfy_server") or "").rstrip("/"),
+                )
+                if recorded_pair in workers:
+                    pinned_worker = workers.index(recorded_pair)
+            except (OSError, ValueError, json.JSONDecodeError):
+                pinned_worker = None
+        if pinned_worker is None:
+            shared_items.put(item)
+        else:
+            pending_by_worker[pinned_worker].append(item)
+
+    def process_worker(worker_index: int) -> None:
         worker = workers[worker_index]
-        for index, start, segment_duration in items:
-            record = process_segment(index, start, segment_duration, worker_index, worker)
-            with manifest_lock:
-                records[index] = record
-                write_manifest()
+        pinned_items = iter(pending_by_worker[worker_index])
+        while True:
+            from_shared_queue = False
+            try:
+                index, start, segment_duration = next(pinned_items)
+            except StopIteration:
+                try:
+                    index, start, segment_duration = shared_items.get_nowait()
+                    from_shared_queue = True
+                except queue.Empty:
+                    return
+            segment_dir = checkpoint_dir / "segments" / f"segment-{index:03d}"
+            try:
+                record = process_segment(index, start, segment_duration, worker_index, worker)
+                with manifest_lock:
+                    records[index] = record
+                    write_manifest()
+            except (Exception, SystemExit):
+                # A segment that has not been submitted is safe for another
+                # healthy worker to pick up.  A pending prompt stays pinned to
+                # its original worker so we never duplicate an expensive job.
+                if from_shared_queue and not (segment_dir / "pending_prompt.json").exists():
+                    shared_items.put((index, start, segment_duration))
+                raise
+            finally:
+                if from_shared_queue:
+                    shared_items.task_done()
 
     if workflow_template is None:
         bootstrap_start, bootstrap_duration = segments[0]
@@ -854,19 +916,42 @@ def segmented_submit(args: argparse.Namespace) -> dict:
         if workflow_template is None:
             raise SystemExit("InfiniteTalk bootstrap segment did not produce a reusable ComfyUI workflow")
 
-    assignments: list[list[tuple[int, float, float]]] = [[] for _ in workers]
-    for index, (start, segment_duration) in enumerate(segments, start=1):
-        assignments[(index - 1) % len(workers)].append((index, start, segment_duration))
-
     write_manifest()
+    worker_errors: list[tuple[int, BaseException]] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(workers), thread_name_prefix="infinite-talk") as executor:
-        futures = [
-            executor.submit(process_worker, worker_index, items)
-            for worker_index, items in enumerate(assignments)
-            if items
-        ]
+        futures = {
+            executor.submit(process_worker, worker_index): worker_index
+            for worker_index in range(len(workers))
+        }
         for future in concurrent.futures.as_completed(futures):
-            future.result()
+            worker_index = futures[future]
+            try:
+                future.result()
+            except (Exception, SystemExit) as error:
+                worker_errors.append((worker_index, error))
+                print_json(
+                    {
+                        "step": "worker_failed",
+                        "worker": worker_index,
+                        "error": str(error),
+                        "remaining_workers": len(workers) - len(worker_errors),
+                    }
+                )
+
+    missing_segments = [index for index in range(1, len(segments) + 1) if index not in records]
+    if missing_segments:
+        failures = "; ".join(f"worker {index}: {error}" for index, error in worker_errors)
+        raise SystemExit(
+            f"InfiniteTalk workers stopped with incomplete segments {missing_segments}: {failures or 'unknown worker failure'}"
+        )
+    if worker_errors:
+        print_json(
+            {
+                "step": "worker_pool_recovered",
+                "failed_workers": [index for index, _ in worker_errors],
+                "completed_segments": len(records),
+            }
+        )
 
     ordered_records = [records[index] for index in range(1, len(segments) + 1)]
     prompt_ids = [str(record["prompt_id"]) for record in ordered_records]

@@ -55,6 +55,41 @@ class PromptIdRecoveryTest(unittest.TestCase):
             self.assertEqual(MODULE.comfy_prompt_state("http://comfy", "prompt-1"), "active")
 
 
+class HttpJsonRetryTest(unittest.TestCase):
+    class _Response:
+        def __enter__(self) -> "HttpJsonRetryTest._Response":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'{"healthy": true}'
+
+    def test_idempotent_get_retries_transient_disconnect(self) -> None:
+        attempts = [ConnectionResetError("closed"), self._Response()]
+        with (
+            patch.object(MODULE.urllib.request, "urlopen", side_effect=attempts) as mocked,
+            patch.object(MODULE.time, "sleep") as sleep,
+        ):
+            result = MODULE.http_json("http://comfy", "/system_stats", timeout=1)
+
+        self.assertEqual(result, {"healthy": True})
+        self.assertEqual(mocked.call_count, 2)
+        sleep.assert_called_once_with(0.5)
+
+    def test_post_is_not_retried_after_lost_response(self) -> None:
+        with (
+            patch.object(MODULE.urllib.request, "urlopen", side_effect=ConnectionResetError("closed")) as mocked,
+            patch.object(MODULE.time, "sleep") as sleep,
+            self.assertRaises(ConnectionResetError),
+        ):
+            MODULE.http_json("http://comfy", "/prompt", {"prompt": {}}, timeout=1)
+
+        self.assertEqual(mocked.call_count, 1)
+        sleep.assert_not_called()
+
+
 class SubmitRetryTest(unittest.TestCase):
     def test_lost_prompt_is_resubmitted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
