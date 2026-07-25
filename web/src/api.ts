@@ -1,6 +1,7 @@
 export type JobStatus = 'pending' | 'provisioning' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 export type JobMode = 'topic' | 'script' | 'clone';
 export type ReplicaMode = 'exact' | 'condensed';
+export type PublishPlatform = 'original' | 'douyin' | 'wechat_channels' | 'bilibili';
 export type PresenterAssetKind = 'avatar' | 'voice';
 
 export type PresenterAsset = {
@@ -33,6 +34,7 @@ export type Job = {
   title: string;
   mode: JobMode;
   replicaMode: ReplicaMode;
+  publishPlatform: PublishPlatform;
   translateToChinese: boolean;
   topic: string;
   script: string;

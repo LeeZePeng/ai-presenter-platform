@@ -163,14 +163,17 @@ describe('createFullRegenerationJob', () => {
       replicaMode: 'condensed',
       durationSeconds: 300,
       translateToChinese: true,
+      publishPlatform: 'douyin',
     });
 
     expect(result.job).toMatchObject({
       id: 'translated-repair',
-      title: '失败任务（300秒中文精简返修）',
+      title: '失败任务（300秒中文抖音精简返修）',
       replicaMode: 'condensed',
       durationSeconds: 300,
       translateToChinese: true,
+      publishPlatform: 'douyin',
+      aspectRatio: '9:16',
     });
     expect(result.reusedSourceTranscript).toBe(true);
     expect(result.job.metadata).toMatchObject({

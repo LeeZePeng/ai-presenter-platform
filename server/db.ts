@@ -8,6 +8,7 @@ type JobRow = {
   title: string;
   mode: JobRecord['mode'];
   replica_mode: JobRecord['replicaMode'];
+  publish_platform: JobRecord['publishPlatform'];
   translate_to_chinese: number;
   topic: string;
   script: string;
@@ -72,6 +73,7 @@ export class AppDatabase {
         title TEXT NOT NULL,
         mode TEXT NOT NULL,
         replica_mode TEXT NOT NULL DEFAULT 'exact',
+        publish_platform TEXT NOT NULL DEFAULT 'original',
         translate_to_chinese INTEGER NOT NULL DEFAULT 0,
         topic TEXT NOT NULL DEFAULT '',
         script TEXT NOT NULL DEFAULT '',
@@ -131,6 +133,9 @@ export class AppDatabase {
     }
     if (!jobColumns.some((column) => column.name === 'translate_to_chinese')) {
       this.db.exec('ALTER TABLE jobs ADD COLUMN translate_to_chinese INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!jobColumns.some((column) => column.name === 'publish_platform')) {
+      this.db.exec("ALTER TABLE jobs ADD COLUMN publish_platform TEXT NOT NULL DEFAULT 'original'");
     }
   }
 
@@ -233,16 +238,17 @@ export class AppDatabase {
     this.db
       .prepare(`
         INSERT INTO jobs (
-          id, title, mode, replica_mode, translate_to_chinese, topic, script, duration_seconds, aspect_ratio, style,
+          id, title, mode, replica_mode, publish_platform, translate_to_chinese, topic, script, duration_seconds, aspect_ratio, style,
           voice_mode, rights_confirmed, assets_json, status, stage, progress,
           created_at, updated_at, metadata_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '已进入队列', 2, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '已进入队列', 2, ?, ?, ?)
       `)
       .run(
         id,
         input.title,
         input.mode,
         input.replicaMode ?? (input.mode === 'clone' ? 'exact' : 'condensed'),
+        input.publishPlatform ?? 'original',
         input.mode === 'clone' && input.translateToChinese ? 1 : 0,
         input.topic,
         input.script,
@@ -266,6 +272,7 @@ export class AppDatabase {
       title: row.title,
       mode: row.mode,
       replicaMode: row.replica_mode,
+      publishPlatform: row.publish_platform ?? 'original',
       translateToChinese: Boolean(row.translate_to_chinese),
       topic: row.topic,
       script: row.script,

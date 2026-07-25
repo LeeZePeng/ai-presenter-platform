@@ -7,6 +7,7 @@ const job: JobRecord = {
   title: '真实口型测试',
   mode: 'script',
   replicaMode: 'condensed',
+  publishPlatform: 'original',
   translateToChinese: false,
   topic: '',
   script: '大家好，这是一段测试。',
@@ -128,6 +129,8 @@ describe('buildCodexPrompt', () => {
     expect(prompt).toContain('整体和封面 score 都必须 >= 90');
     expect(prompt).toContain('marketingTitle');
     expect(prompt).toContain('out/cover.png');
+    expect(prompt).toContain('发布目标是原尺寸母版');
+    expect(prompt).toContain('publishPlatform（固定为 original）');
 
     const clonePrompt = buildCodexPrompt(
       {...job, mode: 'clone', replicaMode: 'exact', script: '', topic: '嵌入原片录屏', assets: {sourceVideo: '/jobs/job-1/assets/source.mp4'}},
@@ -257,6 +260,31 @@ describe('buildCodexPrompt', () => {
     expect(portraitPresenterPrimaryPrompt).toContain('--width 480 --height 832');
     expect(portraitPresenterPrimaryPrompt).toContain('--layout portrait --width 720 --height 1248');
     expect(portraitPresenterPrimaryPrompt).toContain('480x832 输出尺寸');
+
+    const douyinPrompt = buildCodexPrompt(
+      {...job, publishPlatform: 'douyin', aspectRatio: '9:16', durationSeconds: 75},
+      '/jobs/job-1',
+      {
+        skillPath: '/skills/ai-presenter-video-replica',
+        presenterApiUrl: 'http://presenter:7860',
+        presenterComfyUrl: 'http://presenter:8188',
+        remotionRuntimeDir: '/runtime/remotion',
+        remotionSkillPath: '/skills/remotion-best-practices',
+        remotionBrowserExecutable: '/runtime/headless-shell',
+        remotionFontDir: '/jobs/job-1/remotion/public/fonts',
+        asrBin: '/runtime/whisper-cli',
+        asrModel: '/runtime/ggml-small.bin',
+        asrLanguage: 'zh',
+        asrThreads: 8,
+        sourceTranscriptPath: undefined,
+      },
+    );
+    expect(douyinPrompt).toContain('发布目标是抖音');
+    expect(douyinPrompt).toContain('1080x1920');
+    expect(douyinPrompt).toContain('第 0 帧');
+    expect(douyinPrompt).toContain('主标题至少 84px');
+    expect(douyinPrompt).toContain('x=80-900、y=140-1580');
+    expect(douyinPrompt).toContain('publishPlatform（固定为 douyin）');
 
     const avatarCanvasPrompt = buildCodexPrompt(
       {

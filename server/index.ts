@@ -518,10 +518,18 @@ app.post('/api/admin/jobs/:id/regenerate', (req, res, next) => {
     const translateToChinese = req.body?.translateToChinese === undefined
       ? undefined
       : req.body.translateToChinese === true || req.body.translateToChinese === 'true';
+    const publishPlatform = req.body?.publishPlatform;
+    if (
+      publishPlatform !== undefined &&
+      !['original', 'douyin', 'wechat_channels', 'bilibili'].includes(publishPlatform)
+    ) {
+      return res.status(400).json({error: 'publishPlatform 不受支持'});
+    }
     const result = createFullRegenerationJob(db, jobsDir, req.params.id, randomUUID(), {
       replicaMode,
       durationSeconds,
       translateToChinese,
+      publishPlatform,
     });
     power.requestPowerForQueuedJob(result.job.id);
     return res.status(202).json({...result, job: publicJob(result.job)});

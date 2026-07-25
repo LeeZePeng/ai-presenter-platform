@@ -49,6 +49,7 @@ describe('database path migration', () => {
 
     const migrated = new AppDatabase(filename);
     const job = migrated.getJob('legacy-job')!;
+    expect(job.publishPlatform).toBe('original');
     expect(job.assets.voiceReference).toBe(path.join(dataDir, 'jobs/legacy-job/voice.wav'));
     expect(job.outputPath).toBe(path.join(dataDir, 'jobs/legacy-job/out/final.mp4'));
     expect(job.metadata.workspace).toBe(path.join(dataDir, 'jobs/legacy-job'));

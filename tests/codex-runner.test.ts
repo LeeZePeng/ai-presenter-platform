@@ -412,6 +412,13 @@ describe('validateMarketingCopy', () => {
         '本视频使用 Codex 和 Remotion 制作成片，并通过 TTS 生成最终口播，完整展示幕后制作过程。',
       ),
     ).toThrow('制作过程');
+    expect(() =>
+      validateMarketingCopy(
+        '这是一个超过二十四个字符因此不适合直接发布到抖音平台的标题',
+        '这一期直接讲清核心结论、关键原因和可以立刻执行的下一步，帮助你快速做出判断。',
+        'douyin',
+      ),
+    ).toThrow('抖音发布标题');
   });
 });
 

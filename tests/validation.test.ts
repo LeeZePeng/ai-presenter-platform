@@ -22,6 +22,7 @@ describe('parseJobInput', () => {
     expect(result.durationSeconds).toBe(15);
     expect(result.mode).toBe('topic');
     expect(result.replicaMode).toBe('condensed');
+    expect(result.publishPlatform).toBe('original');
   });
 
   it('uses the platform maximum when duration is omitted', () => {
@@ -61,6 +62,35 @@ describe('parseJobInput', () => {
     expect(() =>
       parseJobInput({...base, aspectRatio: 'avatar'}, {avatarImage: '/tmp/avatar.png'}),
     ).toThrow('仅支持真人主画面风格');
+  });
+
+  it('locks platform presets to their publishing aspect ratios', () => {
+    expect(
+      parseJobInput(
+        {...base, publishPlatform: 'douyin', aspectRatio: '16:9'},
+        {avatarImage: '/tmp/avatar.png'},
+      ).aspectRatio,
+    ).toBe('9:16');
+    expect(
+      parseJobInput(
+        {...base, publishPlatform: 'wechat_channels', aspectRatio: '1:1'},
+        {avatarImage: '/tmp/avatar.png'},
+      ).aspectRatio,
+    ).toBe('9:16');
+    expect(
+      parseJobInput(
+        {...base, publishPlatform: 'bilibili', aspectRatio: '9:16'},
+        {avatarImage: '/tmp/avatar.png'},
+      ).aspectRatio,
+    ).toBe('16:9');
+  });
+
+  it('allows a platform preset to override an incompatible avatar canvas request', () => {
+    const result = parseJobInput(
+      {...base, publishPlatform: 'douyin', aspectRatio: 'avatar'},
+      {avatarImage: '/tmp/avatar.png'},
+    );
+    expect(result.aspectRatio).toBe('9:16');
   });
 
   it('defaults clone jobs to exact replication and supports explicit condensation', () => {

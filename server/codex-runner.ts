@@ -6,7 +6,7 @@ import path from 'node:path';
 import {resolvePresenterLayout} from './presenter-layout.js';
 import {DatabaseSync} from 'node:sqlite';
 import {selectWorkingUsProxy} from './codex-proxy.js';
-import type {JobRecord} from './types.js';
+import type {JobRecord, PublishingPlatform} from './types.js';
 
 type RunnerOptions = {
   bin: string;
@@ -53,6 +53,7 @@ const redact = (text: string): string => {
 };
 
 type ResultManifest = {
+  publishPlatform?: unknown;
   outputPath?: unknown;
   presenterProvider?: unknown;
   presenterSourcePath?: unknown;
@@ -429,8 +430,15 @@ export const contentOverlapRatio = (candidate: string, source: string): number =
   return matches / candidateTerms.size;
 };
 
-export const validateMarketingCopy = (title: string, description: string): void => {
+export const validateMarketingCopy = (
+  title: string,
+  description: string,
+  publishPlatform: PublishingPlatform = 'original',
+): void => {
   if (title.length < 8 || title.length > 40) throw new Error('发布标题长度必须为 8-40 个字符');
+  if (publishPlatform === 'douyin' && title.length > 24) {
+    throw new Error('抖音发布标题长度必须为 8-24 个字符');
+  }
   if (description.length < 30 || description.length > 500) {
     throw new Error('发布描述长度必须为 30-500 个字符');
   }
@@ -2084,6 +2092,9 @@ export class CodexRunner {
     }
     if (manifest.presenterProvider !== 'InfiniteTalk') throw new Error('结果未声明使用 InfiniteTalk 真实口型');
     if (manifest.compositionRenderer !== 'Remotion') throw new Error('最终成片未声明使用 Remotion 编排');
+    if (manifest.publishPlatform !== job.publishPlatform) {
+      throw new Error(`结果清单 publishPlatform 必须为 ${job.publishPlatform}`);
+    }
     const manifestOutput = resolveWorkspacePath(workspace, manifest.outputPath, 'outputPath');
     if (manifestOutput !== expected) throw new Error('结果清单 outputPath 与最终成片路径不一致');
     const remotionEntry = resolveWorkspacePath(workspace, manifest.remotionEntryPath, 'remotionEntryPath');
@@ -2111,7 +2122,7 @@ export class CodexRunner {
     const marketingTitle = typeof manifest.marketingTitle === 'string' ? manifest.marketingTitle.trim() : '';
     const marketingDescription =
       typeof manifest.marketingDescription === 'string' ? manifest.marketingDescription.trim() : '';
-    validateMarketingCopy(marketingTitle, marketingDescription);
+    validateMarketingCopy(marketingTitle, marketingDescription, job.publishPlatform);
     const cover = resolveWorkspacePath(workspace, manifest.coverPath, 'coverPath');
     if (!existsSync(cover) || statSync(cover).size <= 10_000) throw new Error('缺少高质量发布封面');
     const outputDimensions = probeDimensions(expected);

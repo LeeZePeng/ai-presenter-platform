@@ -3,6 +3,7 @@ import {copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, 
 import path from 'node:path';
 import type {AppDatabase} from './db.js';
 import type {JobAssets, JobCreateInput, JobRecord} from './types.js';
+import {publishingPlatformLabels, resolvePublishingAspectRatio} from './publishing-platform.js';
 
 export class RetryJobError extends Error {
   constructor(
@@ -233,6 +234,7 @@ export const createRetryJob = (
       title: source.title,
       mode: source.mode,
       replicaMode: source.replicaMode,
+      publishPlatform: source.publishPlatform,
       translateToChinese: source.translateToChinese,
       topic: source.topic,
       script: source.script,
@@ -284,7 +286,12 @@ export const createFullRegenerationJob = (
   jobsDir: string,
   sourceId: string,
   retryId: string,
-  overrides: {replicaMode?: JobRecord['replicaMode']; durationSeconds?: number; translateToChinese?: boolean} = {},
+  overrides: {
+    replicaMode?: JobRecord['replicaMode'];
+    durationSeconds?: number;
+    translateToChinese?: boolean;
+    publishPlatform?: JobRecord['publishPlatform'];
+  } = {},
 ): {job: JobRecord; reusedCheckpoints: false; reusedCompletedArtifacts: false; reusedSourceTranscript: boolean} => {
   const source = db.getJob(sourceId);
   if (!source) throw new RetryJobError('任务不存在', 404);
@@ -310,18 +317,20 @@ export const createFullRegenerationJob = (
       copyFileSync(sourceTranscript, retryTranscript);
     }
     const translated = overrides.translateToChinese ?? source.translateToChinese;
+    const publishPlatform = overrides.publishPlatform ?? source.publishPlatform;
     const repairLabel = replicaMode === 'condensed'
-      ? `${durationSeconds}秒${translated ? '中文' : ''}精简返修`
-      : `${translated ? '中文' : ''}完整返修`;
+      ? `${durationSeconds}秒${translated ? '中文' : ''}${publishingPlatformLabels[publishPlatform]}精简返修`
+      : `${translated ? '中文' : ''}${publishingPlatformLabels[publishPlatform]}完整返修`;
     const input: JobCreateInput = {
       title: `${source.title}（${repairLabel}）`,
       mode: source.mode,
       replicaMode,
+      publishPlatform,
       translateToChinese: translated,
       topic: source.topic,
       script: source.script,
       durationSeconds,
-      aspectRatio: source.aspectRatio,
+      aspectRatio: resolvePublishingAspectRatio(publishPlatform, source.aspectRatio),
       style: source.style,
       voiceMode: source.voiceMode,
       rightsConfirmed: source.rightsConfirmed,
@@ -351,6 +360,7 @@ export const createFullRegenerationJob = (
       replicaMode,
       durationSeconds,
       translateToChinese: input.translateToChinese,
+      publishPlatform,
     });
     db.addEvent(source.id, 'info', 'full_regeneration_retried', `已创建完整返修任务 ${retryId.slice(0, 12)}`, {
       retryJobId: retryId,
@@ -406,6 +416,7 @@ export const createVisualRepairJob = (
       title: `${source.title}（视觉返修）`,
       mode: source.mode,
       replicaMode: source.replicaMode,
+      publishPlatform: source.publishPlatform,
       translateToChinese: source.translateToChinese,
       topic: source.topic,
       script: source.script,

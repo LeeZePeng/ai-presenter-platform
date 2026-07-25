@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {resolvePublishingAspectRatio} from './publishing-platform.js';
 import type {JobAssets, JobCreateInput} from './types.js';
 
 export const isExactReplicaAudioDurationCompatible = (
@@ -11,6 +12,7 @@ const formSchema = z.object({
   title: z.string().trim().min(2, '请填写任务名称').max(80),
   mode: z.enum(['topic', 'script', 'clone']),
   replicaMode: z.enum(['exact', 'condensed']).default('exact'),
+  publishPlatform: z.enum(['original', 'douyin', 'wechat_channels', 'bilibili']).default('original'),
   translateToChinese: z
     .union([z.literal('true'), z.literal('false'), z.literal('1'), z.literal('0'), z.literal('on'), z.boolean()])
     .default(false)
@@ -28,6 +30,7 @@ const formSchema = z.object({
 
 export const parseJobInput = (body: Record<string, unknown>, assets: JobAssets): JobCreateInput => {
   const parsed = formSchema.parse(body);
+  const aspectRatio = resolvePublishingAspectRatio(parsed.publishPlatform, parsed.aspectRatio);
   const voiceMode = parsed.voiceMode ?? (assets.voiceReference ? 'uploaded_reference' : parsed.mode === 'clone' ? 'original_clone' : 'system_voice');
   if (!parsed.rightsConfirmed) throw new Error('必须确认拥有形象、声音和参考素材的使用权');
   if (voiceMode !== 'uploaded_audio' && parsed.durationSeconds < 5) {
@@ -39,7 +42,7 @@ export const parseJobInput = (body: Record<string, unknown>, assets: JobAssets):
   if (parsed.style === '真人主画面·悬浮组件' && !assets.avatarImage) {
     throw new Error('“真人主画面·悬浮组件”需要上传或选择人物图片');
   }
-  if (parsed.aspectRatio === 'avatar' && parsed.style !== '真人主画面·悬浮组件') {
+  if (aspectRatio === 'avatar' && parsed.style !== '真人主画面·悬浮组件') {
     throw new Error('“跟随人物图”画幅仅支持真人主画面风格');
   }
   if (!assets.avatarImage && !assets.sourceVideo) throw new Error('请上传人物形象图片或参考视频');
@@ -54,6 +57,7 @@ export const parseJobInput = (body: Record<string, unknown>, assets: JobAssets):
   }
   return {
     ...parsed,
+    aspectRatio,
     voiceMode,
     replicaMode: parsed.mode === 'clone' ? parsed.replicaMode : 'condensed',
     translateToChinese: parsed.mode === 'clone' && parsed.translateToChinese,

@@ -1,5 +1,6 @@
 export type JobMode = 'topic' | 'script' | 'clone';
 export type ReplicaMode = 'exact' | 'condensed';
+export type PublishingPlatform = 'original' | 'douyin' | 'wechat_channels' | 'bilibili';
 export type JobStatus =
   | 'pending'
   | 'provisioning'
@@ -32,6 +33,7 @@ export type JobCreateInput = {
   title: string;
   mode: JobMode;
   replicaMode: ReplicaMode;
+  publishPlatform?: PublishingPlatform;
   translateToChinese?: boolean;
   topic: string;
   script: string;
@@ -43,8 +45,9 @@ export type JobCreateInput = {
   assets: JobAssets;
 };
 
-export type JobRecord = Omit<JobCreateInput, 'translateToChinese'> & {
+export type JobRecord = Omit<JobCreateInput, 'translateToChinese' | 'publishPlatform'> & {
   translateToChinese: boolean;
+  publishPlatform: PublishingPlatform;
   id: string;
   status: JobStatus;
   stage: string;

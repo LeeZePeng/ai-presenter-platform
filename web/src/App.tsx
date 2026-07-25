@@ -49,6 +49,7 @@ import {
   type JobEvent,
   type JobMode,
   type PresenterAsset,
+  type PublishPlatform,
   type ReplicaMode,
   type ServiceSnapshot,
   type YouTubeImport,
@@ -102,6 +103,23 @@ const voiceLabel = {
 
 const minimumGeneratedDurationSeconds = 5;
 const maximumGeneratedDurationSeconds = 1800;
+
+const publishingPresets: Array<{
+  id: PublishPlatform;
+  label: string;
+  aspectRatio: '16:9' | '9:16' | null;
+  resolution: string;
+  preferredDuration: number;
+  description: string;
+}> = [
+  {id: 'douyin', label: '抖音', aspectRatio: '9:16', resolution: '1080×1920', preferredDuration: 75, description: '首帧强钩子 · 竖屏安全区 · 快节奏'},
+  {id: 'wechat_channels', label: '视频号', aspectRatio: '9:16', resolution: '1080×1920', preferredDuration: 120, description: '竖屏讲解 · 信息更完整 · 字幕易读'},
+  {id: 'bilibili', label: 'B站', aspectRatio: '16:9', resolution: '1920×1080', preferredDuration: 300, description: '横屏章节 · 演示优先 · 保留上下文'},
+  {id: 'original', label: '原尺寸母版', aspectRatio: null, resolution: '自选画幅', preferredDuration: 120, description: '保留原尺寸 · 适合归档和二次剪辑'},
+];
+
+const formatPublishingPlatform = (platform: PublishPlatform): string =>
+  publishingPresets.find((preset) => preset.id === platform)?.label ?? '原尺寸母版';
 
 const condensedTargetForSource = (sourceDurationSeconds: number, preferredSeconds = 60): number =>
   Math.min(
@@ -371,10 +389,10 @@ const JobDrawer = ({
 
       {job.status === 'succeeded' && (
         <>
-          <video className="result-video" src={resultUrl(job.id)} controls playsInline preload="metadata" />
+          <video className="result-video" style={{aspectRatio: job.aspectRatio === 'avatar' ? 'auto' : job.aspectRatio.replace(':', ' / ')}} src={resultUrl(job.id)} controls playsInline preload="metadata" />
           {delivery && (
             <section className="delivery-package">
-              <img src={coverUrl(job.id)} alt={delivery.marketingTitle} />
+              <img style={{aspectRatio: job.aspectRatio === 'avatar' ? 'auto' : job.aspectRatio.replace(':', ' / ')}} src={coverUrl(job.id)} alt={delivery.marketingTitle} />
               <div>
                 <small>发布标题</small>
                 <h3>{delivery.marketingTitle}</h3>
@@ -394,6 +412,7 @@ const JobDrawer = ({
 
       <dl className="job-facts">
         <div><dt>模式</dt><dd>{modeConfig.find((item) => item.id === job.mode)?.label}</dd></div>
+        <div><dt>发布平台</dt><dd>{formatPublishingPlatform(job.publishPlatform)}</dd></div>
         <div><dt>画幅</dt><dd>{job.aspectRatio}</dd></div>
         <div><dt>时长</dt><dd>{formatJobDuration(job)}</dd></div>
         <div><dt>创建</dt><dd>{formatTime(job.createdAt)}</dd></div>
@@ -463,12 +482,13 @@ export const App = () => {
 
   const [mode, setMode] = useState<JobMode>('clone');
   const [replicaMode, setReplicaMode] = useState<ReplicaMode>('exact');
+  const [publishPlatform, setPublishPlatform] = useState<PublishPlatform>('douyin');
   const [translateToChinese, setTranslateToChinese] = useState(true);
   const [title, setTitle] = useState('');
   const [topic, setTopic] = useState('');
   const [script, setScript] = useState('');
-  const [duration, setDuration] = useState(120);
-  const [ratio, setRatio] = useState<'16:9' | '9:16' | '1:1' | 'avatar'>('16:9');
+  const [duration, setDuration] = useState(75);
+  const [ratio, setRatio] = useState<'16:9' | '9:16' | '1:1' | 'avatar'>('9:16');
   const [style, setStyle] = useState('自然专业');
   const [voiceMode, setVoiceMode] = useState<VoiceMode>('original_clone');
   const [avatar, setAvatar] = useState<File | null>(null);
@@ -612,6 +632,8 @@ export const App = () => {
   const selectedVoiceAsset = presenterAssets.find((asset) => asset.id === voiceAssetId);
   const hasCloneSource = sourceOrigin === 'youtube' ? Boolean(youtubeImport) : Boolean(source);
   const presenterPrimaryStyle = style === '真人主画面·悬浮组件';
+  const selectedPublishingPreset = publishingPresets.find((preset) => preset.id === publishPlatform)!;
+  const platformPreferredDuration = selectedPublishingPreset.preferredDuration;
   const assetSummary = selectedAvatarAsset?.name ?? avatar?.name ?? (presenterPrimaryStyle ? '未选择人物图片' : mode === 'clone' ? '从参考视频取人物' : source?.name);
   const sourceSummary = youtubeImport?.video.title ?? source?.name;
   const durationSummary =
@@ -645,6 +667,22 @@ export const App = () => {
         .sort((left, right) => left - right)
         .slice(0, 7)
     : [15, 30, 60, 90, 120, 180, 300];
+
+  const choosePublishingPlatform = (next: PublishPlatform): void => {
+    const preset = publishingPresets.find((item) => item.id === next)!;
+    setPublishPlatform(next);
+    setRatio(preset.aspectRatio ?? (presenterPrimaryStyle ? 'avatar' : '16:9'));
+    if (voiceMode !== 'uploaded_audio') {
+      if (mode === 'clone' && replicaMode === 'exact' && sourceDuration) {
+        setDuration(Math.ceil(sourceDuration));
+      } else if (mode === 'clone' && replicaMode === 'condensed' && sourceDuration) {
+        setDuration(condensedTargetForSource(sourceDuration, preset.preferredDuration));
+      } else {
+        setDuration(preset.preferredDuration);
+      }
+    }
+    setStepError('');
+  };
 
   const searchYouTube = async (): Promise<void> => {
     if (!youtubeQuery.trim()) return setStepError('请输入要寻找的 YouTube 视频关键词');
@@ -699,7 +737,7 @@ export const App = () => {
       const seconds = data.import.video.durationSeconds;
       setSourceDuration(seconds);
       if (replicaMode === 'exact') setDuration(Math.ceil(seconds));
-      else setDuration((current) => condensedTargetForSource(seconds, current));
+      else setDuration(condensedTargetForSource(seconds, platformPreferredDuration));
     } catch (caught) {
       setStepError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -726,9 +764,9 @@ export const App = () => {
     if (nextMode === 'uploaded_audio' && audioDuration) setDuration(Math.max(1, Math.ceil(audioDuration)));
     else if (mode === 'clone' && replicaMode === 'exact' && sourceDuration) setDuration(Math.ceil(sourceDuration));
     else if (mode === 'clone' && replicaMode === 'condensed' && sourceDuration) {
-      setDuration((current) => condensedTargetForSource(sourceDuration, current));
+      setDuration(condensedTargetForSource(sourceDuration, platformPreferredDuration));
     }
-    else setDuration(120);
+    else setDuration(platformPreferredDuration);
     setStepError('');
   };
 
@@ -742,8 +780,8 @@ export const App = () => {
         mode === 'clone' && replicaMode === 'exact' && sourceDuration
           ? Math.ceil(sourceDuration)
           : mode === 'clone' && replicaMode === 'condensed'
-            ? sourceDuration ? condensedTargetForSource(sourceDuration) : 60
-            : 120,
+            ? sourceDuration ? condensedTargetForSource(sourceDuration, platformPreferredDuration) : platformPreferredDuration
+            : platformPreferredDuration,
       );
       setStepError('');
       return;
@@ -763,9 +801,9 @@ export const App = () => {
       setVoiceMode('uploaded_reference');
       if (mode === 'clone' && replicaMode === 'exact' && sourceDuration) setDuration(Math.ceil(sourceDuration));
       else if (mode === 'clone' && replicaMode === 'condensed' && sourceDuration) {
-        setDuration((current) => condensedTargetForSource(sourceDuration, current));
+        setDuration(condensedTargetForSource(sourceDuration, platformPreferredDuration));
       }
-      else setDuration(120);
+      else setDuration(platformPreferredDuration);
       setStepError('');
     } catch (caught) {
       setVoice(null);
@@ -784,7 +822,7 @@ export const App = () => {
       const seconds = await readVideoDuration(file);
       setSourceDuration(seconds);
       if (replicaMode === 'exact') setDuration(Math.max(1, Math.ceil(seconds)));
-      else setDuration((current) => condensedTargetForSource(seconds, current));
+      else setDuration(condensedTargetForSource(seconds, platformPreferredDuration));
     } catch (caught) {
       setSource(null);
       setStepError(caught instanceof Error ? caught.message : String(caught));
@@ -860,6 +898,7 @@ export const App = () => {
       form.set('title', title || fallbackTitle || 'AI 口播任务');
       form.set('mode', mode);
       form.set('replicaMode', replicaMode);
+      form.set('publishPlatform', publishPlatform);
       form.set('translateToChinese', String(mode === 'clone' && translateToChinese));
       form.set('topic', topic);
       form.set('script', script);
@@ -1037,7 +1076,10 @@ export const App = () => {
                             setReplicaMode('exact');
                             if (sourceDuration) setDuration(Math.ceil(sourceDuration));
                           }
-                          else if (!hasCloneSource && voiceMode === 'original_clone') setVoiceMode('system_voice');
+                          else {
+                            if (!hasCloneSource && voiceMode === 'original_clone') setVoiceMode('system_voice');
+                            if (voiceMode !== 'uploaded_audio') setDuration(platformPreferredDuration);
+                          }
                         }}
                       >
                         {mode === id && <motion.span className="mode-active-track" layoutId="mode-active-track" transition={{duration: 0.14}} />}
@@ -1114,7 +1156,7 @@ export const App = () => {
                             <span>复刻范围</span>
                             <div className="segmented">
                               <button type="button" aria-pressed={replicaMode === 'exact'} className={replicaMode === 'exact' ? 'active' : ''} onClick={() => { setReplicaMode('exact'); if (sourceDuration) setDuration(Math.ceil(sourceDuration)); }}>完整复刻</button>
-                              <button type="button" aria-pressed={replicaMode === 'condensed'} className={replicaMode === 'condensed' ? 'active' : ''} onClick={() => { setReplicaMode('condensed'); setDuration(sourceDuration ? condensedTargetForSource(sourceDuration) : 60); setStepError(''); }}>精简复刻</button>
+                              <button type="button" aria-pressed={replicaMode === 'condensed'} className={replicaMode === 'condensed' ? 'active' : ''} onClick={() => { setReplicaMode('condensed'); setDuration(sourceDuration ? condensedTargetForSource(sourceDuration, platformPreferredDuration) : platformPreferredDuration); setStepError(''); }}>精简复刻</button>
                             </div>
                           </div>
                           <label className="youtube-rights translation-option">
@@ -1168,7 +1210,30 @@ export const App = () => {
                   exit={{opacity: 0, y: -3}}
                   transition={{duration: 0.13, ease: 'easeOut'}}
                 >
-                  <div className="section-title"><Video size={18} /><h2>选择人物与声音</h2></div>
+                  <div className="section-title"><Video size={18} /><h2>发布平台、人物与声音</h2></div>
+                  <section className="publishing-platform-panel">
+                    <div className="publishing-platform-heading">
+                      <span>发布平台</span>
+                      <small>平台预设会锁定画幅、安全区、首帧和节奏</small>
+                    </div>
+                    <div className="publishing-platform-grid" role="group" aria-label="发布平台">
+                      {publishingPresets.map((preset) => (
+                        <button
+                          type="button"
+                          key={preset.id}
+                          aria-pressed={publishPlatform === preset.id}
+                          className={publishPlatform === preset.id ? 'active' : ''}
+                          onClick={() => choosePublishingPlatform(preset.id)}
+                        >
+                          <span><strong>{preset.label}</strong><i>{preset.resolution}</i></span>
+                          <small>{preset.description}</small>
+                        </button>
+                      ))}
+                    </div>
+                    {publishPlatform !== 'original' && (
+                      <p className="publishing-platform-lock"><Check size={14} />{selectedPublishingPreset.label}预设已锁定 {selectedPublishingPreset.aspectRatio} · {selectedPublishingPreset.resolution}</p>
+                    )}
+                  </section>
                   <PresenterAssetShelf kind="avatar" assets={presenterAssets.filter((asset) => asset.kind === 'avatar')} selectedId={avatarAssetId} onSelect={selectAvatarAsset} />
                   <div className="simple-upload">
                     <FileField
@@ -1179,7 +1244,7 @@ export const App = () => {
                       onChange={(file) => { setAvatar(file); setAvatarAssetId(''); setAvatarAssetName(file?.name.replace(/\.[^.]+$/, '') ?? ''); setStepError(''); }}
                     />
                   </div>
-                  {presenterPrimaryStyle && <p className="presenter-style-hint"><ImageIcon size={15} />此风格以这里选择或上传的人物图片为唯一形象来源；可选择“跟随人物图”，让成片保持原图宽高比和像素尺寸。</p>}
+                  {presenterPrimaryStyle && <p className="presenter-style-hint"><ImageIcon size={15} />此风格以这里选择或上传的人物图片为唯一形象来源；{publishPlatform === 'original' ? '原尺寸母版可选择“跟随人物图”。' : `${selectedPublishingPreset.label}会按 ${selectedPublishingPreset.aspectRatio} 安全裁切并保持人物不拉伸。`}</p>}
                   {avatar && (
                     <div className="save-asset-row">
                       <label><input type="checkbox" checked={saveAvatarAsset} onChange={(event) => setSaveAvatarAsset(event.target.checked)} /><Save size={15} />保存到形象库</label>
@@ -1224,11 +1289,11 @@ export const App = () => {
                       <div className="advanced-panel">
                         <div className="two-columns">
                           <label>任务名称<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="自动使用内容摘要" /></label>
-                          <label>画面风格<select value={style} onChange={(event) => { const nextStyle = event.target.value; setStyle(nextStyle); if (nextStyle === '真人主画面·悬浮组件') setRatio('avatar'); else if (ratio === 'avatar') setRatio('16:9'); setStepError(''); }}><option>自然专业</option><option value="真人主画面·悬浮组件">真人主画面·悬浮组件（需人物图）</option><option>科技冷静</option><option>亲切生活化</option><option>高能短视频</option><option>电影访谈</option></select></label>
+                          <label>画面风格<select value={style} onChange={(event) => { const nextStyle = event.target.value; setStyle(nextStyle); if (publishPlatform === 'original') { if (nextStyle === '真人主画面·悬浮组件') setRatio('avatar'); else if (ratio === 'avatar') setRatio('16:9'); } setStepError(''); }}><option>自然专业</option><option value="真人主画面·悬浮组件">真人主画面·悬浮组件（需人物图）</option><option>科技冷静</option><option>亲切生活化</option><option>高能短视频</option><option>电影访谈</option></select></label>
                         </div>
                         <div className={`advanced-grid ${voice || selectedVoiceAsset ? 'single-column' : ''}`}>
                           {!(voice || selectedVoiceAsset) && <label>默认声音来源<select value={voiceMode} onChange={(event) => chooseVoiceMode(event.target.value as VoiceMode)}>{mode === 'clone' && <option value="original_clone">克隆参考视频声音</option>}<option value="system_voice">系统高质量声音</option></select></label>}
-                          <div className="setting-control"><span>画幅比例</span><div className="segmented ratio-segmented">{(['16:9', '9:16', '1:1', ...(presenterPrimaryStyle ? ['avatar' as const] : [])] as const).map((item) => <button type="button" key={item} className={ratio === item ? 'active' : ''} onClick={() => setRatio(item)}>{item === 'avatar' ? '跟随人物图' : item}</button>)}</div></div>
+                          <div className="setting-control"><span>画幅比例</span>{publishPlatform === 'original' ? <div className="segmented ratio-segmented">{(['16:9', '9:16', '1:1', ...(presenterPrimaryStyle ? ['avatar' as const] : [])] as const).map((item) => <button type="button" key={item} className={ratio === item ? 'active' : ''} onClick={() => setRatio(item)}>{item === 'avatar' ? '跟随人物图' : item}</button>)}</div> : <div className="platform-ratio-lock"><Check size={15} /><strong>{ratio}</strong><small>{selectedPublishingPreset.label}发布规格</small></div>}</div>
                         </div>
                         {mode !== 'clone' && (
                           <div className="file-grid advanced-file-grid">
@@ -1254,7 +1319,8 @@ export const App = () => {
                   <p className="review-note">这里只核对配置，不会立即创建任务。点击“继续确认”后，你还会看到最终发起提示。</p>
                   <dl className="review-grid">
                     <div><dt>创作方式</dt><dd>{modeConfig.find((item) => item.id === mode)?.label}</dd></div>
-                    <div><dt>输出规格</dt><dd>{durationSummary} · {ratio}</dd></div>
+                    <div><dt>发布平台</dt><dd>{selectedPublishingPreset.label}</dd></div>
+                    <div><dt>输出规格</dt><dd>{durationSummary} · {ratio} · {selectedPublishingPreset.resolution}</dd></div>
                     {mode === 'clone' && <div className="review-wide"><dt>参考原片</dt><dd>{sourceSummary}</dd></div>}
                     <div><dt>人物素材</dt><dd>{assetSummary || '未上传'}</dd></div>
                     <div><dt>声音</dt><dd>{voiceSummary}</dd></div>
@@ -1289,7 +1355,7 @@ export const App = () => {
                 <tbody>
                   {jobs.map((job) => (
                     <tr key={job.id} onClick={() => void openJob(job)}>
-                      <td><strong>{job.title}</strong><small>{job.aspectRatio} · {formatJobDuration(job)}</small></td>
+                      <td><strong>{job.title}</strong><small>{formatPublishingPlatform(job.publishPlatform)} · {job.aspectRatio} · {formatJobDuration(job)}</small></td>
                       <td>{modeConfig.find((item) => item.id === job.mode)?.label}</td>
                       <td><span className={`status-badge ${job.status}`}><i />{statusLabel[job.status]}</span></td>
                       <td><div className="table-progress"><i style={{width: `${job.progress}%`}} /></div><small>{job.stage}</small></td>
@@ -1346,7 +1412,8 @@ export const App = () => {
               </div>
               <dl className="dispatch-confirm-facts">
                 <div><dt>制作方式</dt><dd>{mode === 'clone' ? `${replicaMode === 'exact' ? '完整复刻' : '精简复刻'} · ${translateToChinese ? '翻译中文' : '保留原语言'}` : modeConfig.find((item) => item.id === mode)?.label}</dd></div>
-                <div><dt>输出规格</dt><dd>{durationSummary} · {ratio}</dd></div>
+                <div><dt>发布平台</dt><dd>{selectedPublishingPreset.label}</dd></div>
+                <div><dt>输出规格</dt><dd>{durationSummary} · {ratio} · {selectedPublishingPreset.resolution}</dd></div>
                 <div><dt>人物</dt><dd>{assetSummary || '未上传'}</dd></div>
                 <div><dt>声音</dt><dd>{voiceSummary}</dd></div>
               </dl>
