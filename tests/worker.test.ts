@@ -4,6 +4,7 @@ import path from 'node:path';
 import {afterEach, describe, expect, it} from 'vitest';
 import {
   calculateGpuRetryDelayMs,
+  gpuCapacityRetryMessage,
   ensureRemotionRuntimeLink,
   isRetryableGpuCapacityError,
   isRecoverableWorkerTimeout,
@@ -69,11 +70,22 @@ describe('GPU capacity retry policy', () => {
     expect(isRetryableGpuCapacityError('403 invalid private key')).toBe(false);
   });
 
-  it('backs off from 30 seconds and caps at five minutes', () => {
-    expect(calculateGpuRetryDelayMs(1)).toBe(30_000);
-    expect(calculateGpuRetryDelayMs(2)).toBe(60_000);
-    expect(calculateGpuRetryDelayMs(3)).toBe(120_000);
-    expect(calculateGpuRetryDelayMs(99)).toBe(300_000);
+  it('backs off from 15 seconds and caps at one minute', () => {
+    expect(calculateGpuRetryDelayMs(1)).toBe(15_000);
+    expect(calculateGpuRetryDelayMs(2)).toBe(30_000);
+    expect(calculateGpuRetryDelayMs(3)).toBe(60_000);
+    expect(calculateGpuRetryDelayMs(99)).toBe(60_000);
+  });
+
+  it('states that the task already triggered power-on when the provider has no four-card capacity', () => {
+    const message = gpuCapacityRetryMessage(
+      'CompShare StartCompShareInstance failed (226604): This GPU type is currently out of resources.',
+      4,
+      60_000,
+    );
+    expect(message).toContain('任务已自动请求 GPU 开机');
+    expect(message).toContain('暂无可分配的 4 卡资源');
+    expect(message).toContain('60 秒后继续自动重试');
   });
 });
 

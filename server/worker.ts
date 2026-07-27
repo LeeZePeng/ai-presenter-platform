@@ -56,7 +56,17 @@ export const isRetryableGpuCapacityError = (message: string): boolean =>
   );
 
 export const calculateGpuRetryDelayMs = (attempt: number): number =>
-  Math.min(5 * 60 * 1000, 30 * 1000 * 2 ** Math.max(0, Math.min(4, attempt - 1)));
+  Math.min(60 * 1000, 15 * 1000 * 2 ** Math.max(0, Math.min(3, attempt - 1)));
+
+export const gpuCapacityRetryMessage = (message: string, attempt: number, retryDelayMs: number): string => {
+  const noCapacity = /(?:226604|out of resources|insufficient capacity|resource capacity|资源不足|暂无可用资源)/i.test(
+    message,
+  );
+  const reason = noCapacity
+    ? '任务已自动请求 GPU 开机，但当前机房暂无可分配的 4 卡资源（CompShare 226604）'
+    : '任务已自动请求 GPU 开机，但云端本次未接受启动请求';
+  return `${reason}；第 ${attempt} 次启动失败，约 ${Math.ceil(retryDelayMs / 1000)} 秒后继续自动重试`;
+};
 
 export const isRecoverableWorkerTimeout = (message: string): boolean =>
   /^Codex worker 超过 \d+ 分钟超时$/.test(message.trim());
@@ -573,7 +583,7 @@ export class JobWorker {
         this.nextClaimAt = retryAt;
         this.db.updateJob(job.id, {
           status: 'pending',
-          stage: '等待 GPU 资源',
+          stage: '等待云端 4 卡空闲',
           progress: 8,
           error: null,
           startedAt: null,
@@ -588,8 +598,8 @@ export class JobWorker {
           job.id,
           'warning',
           'gpu_capacity_wait',
-          `GPU 资源暂不可用，约 ${Math.ceil(retryDelayMs / 1000)} 秒后自动重试`,
-          {attempt, retryAt: new Date(retryAt).toISOString()},
+          gpuCapacityRetryMessage(message, attempt, retryDelayMs),
+          {attempt, retryAt: new Date(retryAt).toISOString(), providerError: message.slice(-500)},
         );
         return;
       }
