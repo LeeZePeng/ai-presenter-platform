@@ -617,6 +617,7 @@ CompShare 返回 `Initializing` 时会映射为内部 `Starting`，不应误报 
 | `ASR_TIMEOUT_MINUTES` | `120` |
 | `REMOTION_RUNTIME_DIR` | 独立 Remotion runtime 绝对路径 |
 | `REMOTION_SKILL_PATH` | remotion-best-practices skill 绝对路径 |
+| `VIDEO_SHOTCRAFT_SKILL_PATH` | video-shotcraft skill 绝对路径；用于镜头卡、2.5D 运镜与审美规范 |
 | `REMOTION_BROWSER_EXECUTABLE` | 服务器实际 Chromium 路径 |
 | `REMOTION_CONCURRENCY` | Mac 单人物轨道完整渲染并发，默认 `16`；失败自动降到 12/8/6/4 |
 | `REMOTION_CRF` | 无声视觉母版 CRF，默认 `12` |
@@ -643,6 +644,14 @@ CompShare 返回 `Initializing` 时会映射为内部 `Starting`，不应误报 
 | `MODELVERSE_API_KEY` | `<secret>` |
 
 `CODEX_REASONING_EFFORT` 只接受 `low`、`medium`、`high`、`xhigh`、`max`、`ultra`。当前按质量优先使用 `xhigh`，skill 不设人为 token 预算。
+
+生产服务账户还需安装 [video-shotcraft](https://github.com/Vincentwei1021/video-shotcraft)：
+
+```bash
+npx skills add Vincentwei1021/video-shotcraft
+```
+
+平台不会把长口播机械套成 Ink Press 宣传片，而是从镜头库选择适合演示、证据揭示和人物交接的动作语法，并把选择记录到任务的 `out/analysis/shotcraft_plan.json`。
 
 使用 ModelVerse provider 时，Codex 配置只保存 provider 定义，不保存 API Key；密钥只通过应用环境传入。
 

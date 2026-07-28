@@ -31,6 +31,7 @@ type WorkerOptions = {
   qwenTtsModel: string;
   remotionRuntimeDir: string;
   remotionSkillPath: string;
+  videoShotcraftSkillPath: string;
   remotionBrowserExecutable: string;
   remotionConcurrency: number;
   remotionCrf: number;
@@ -467,6 +468,7 @@ export class JobWorker {
         qwenTtsModel: this.options.qwenTtsModel,
         remotionRuntimeDir: this.options.remotionRuntimeDir,
         remotionSkillPath: this.options.remotionSkillPath,
+        videoShotcraftSkillPath: this.options.videoShotcraftSkillPath,
         remotionBrowserExecutable: this.options.remotionBrowserExecutable,
         remotionConcurrency: this.options.remotionConcurrency,
         remotionCrf: this.options.remotionCrf,

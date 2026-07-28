@@ -111,6 +111,7 @@ const worker = new JobWorker(db, power, runner, transcriber, {
   qwenTtsModel: config.qwenTts.model,
   remotionRuntimeDir: config.remotionRuntimeDir,
   remotionSkillPath: config.remotionSkillPath,
+  videoShotcraftSkillPath: config.videoShotcraftSkillPath,
   remotionBrowserExecutable: config.remotionBrowserExecutable,
   remotionConcurrency: config.remotionConcurrency,
   remotionCrf: config.remotionCrf,

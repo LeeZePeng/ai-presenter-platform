@@ -14,6 +14,7 @@ export const buildCodexPrompt = (
     qwenTtsModel?: string;
     remotionRuntimeDir: string;
     remotionSkillPath: string;
+    videoShotcraftSkillPath?: string;
     remotionBrowserExecutable: string;
     remotionConcurrency?: number;
     remotionCrf?: number;
@@ -30,6 +31,7 @@ export const buildCodexPrompt = (
   },
 ): string => {
   const output = path.join(workspace, 'out', 'final.mp4');
+  const videoShotcraftSkillPath = options.videoShotcraftSkillPath ?? '/skills/video-shotcraft';
   const pythonBin = `"${(options.pythonBin ?? 'python3').replaceAll('"', '\\"')}"`;
   const asrDeviceArgs = options.asrUseGpu ? '' : ' --no-gpu';
   const manifest = path.join(workspace, 'out', 'result.json');
@@ -160,6 +162,8 @@ ${options.skillPath}/SKILL.md
 ${options.skillPath}/references/replica-fidelity.md
 ${options.skillPath}/references/remotion-visual-quality.md
 ${options.remotionSkillPath}/SKILL.md
+${videoShotcraftSkillPath}/SKILL.md
+${videoShotcraftSkillPath}/references/aesthetic-rules.md
 
 工作目录：${workspace}
 数字人服务：${options.presenterApiUrl}
@@ -167,6 +171,7 @@ ComfyUI 服务：${options.presenterComfyUrl}
 千问云端参考音色服务：${qwenTtsBaseUrl}
 Remotion 运行时：${options.remotionRuntimeDir}
 Remotion skill：${options.remotionSkillPath}
+Video Shotcraft skill：${videoShotcraftSkillPath}
 Remotion 浏览器：${options.remotionBrowserExecutable}
 Remotion 中文字体目录：${options.remotionFontDir}
 旁白时间戳工具：${narrationTimelineScript}
@@ -176,6 +181,7 @@ Whisper 模型：${options.asrModel}
 任务要求：
 ${publishingInstruction}
 ${sourceEvidenceHardGate}
+Video Shotcraft 视觉质量约束：本任务是数字人口播/内容复刻，不是 36 秒产品广告，不得生硬套用 Ink Press 的画面皮肤，也不要暂停向用户询问 Shotcraft 模式。把用户本次要求视为“自主自由创作式镜头增强”：只在演示、证据揭示、重点信息和人物/演示交接处使用 video-shotcraft 的镜头语言。规划 Remotion 前必须扫描 ${videoShotcraftSkillPath}/gallery/api/library.json 和 ${videoShotcraftSkillPath}/references/shots/ 的 frontmatter，为适合增强的 cue 选择具体 card、style-key 与准确 reference implementation；完整阅读每张被选卡和它指向的 demo TSX，禁止仅凭卡名重写一个近似动画。写出 out/analysis/shotcraft_plan.json，逐项记录 cueIndex、card、styleKey、referenceImplementation、purpose、sourceAsset、adaptations 和 acceptanceFrames；没有合适卡时如实记录 custom，不得硬套。原片真实演示与生成结果永远优先于镜头卡，Shotcraft 只能增强展示，不能遮挡、缩小成装饰小卡或替换证据。视觉 token 必须从原片/产品的真实配色、字体、圆角、材质和信息密度推导；只借用镜头结构、2.5D 运镜、缓动和停留参数，禁止通用赛博霓虹、琥珀纸张或无关模板皮肤。每种主要运动手法全片只当一次主角；信息落定后保留呼吸位，产品/UI 镜头默认禁手持抖动，所有伪随机固定种子。表现真实网页/软件时优先用源视频或 2x 真实截图与 layout 坐标，不用低质量手搓 UI。当前平台锁定旁白为唯一最终音轨且 Remotion 视觉母版禁止 Audio，因此本轮只接入 Shotcraft 视觉镜头与节奏规范，禁止擅自加入 BGM/SFX 或破坏旁白哈希。
 ${pronunciationManifestGate}
 ${voiceProviderInstruction}
 片尾硬门禁：生成最终口播文案后、任何 TTS 或 InfiniteTalk 请求前，必须运行 python3.11 ${narrationScriptValidator} --input out/audio/final_script.txt。最后一段必须回收结论，并给出主题内的真实行动、下一步或自然告别，禁止停在最后一个知识点上。除非用户明确逐字提供并坚持，否则禁止用点赞、关注、收藏、转发、评论区、留言、私信、关键词回复或一键三连制造互动；校验失败必须改稿。生成完成后再次运行同一校验，禁止后续改写破坏片尾。

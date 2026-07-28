@@ -75,6 +75,9 @@ export const config = {
   remotionSkillPath: path.resolve(
     env.REMOTION_SKILL_PATH ?? '/var/lib/ai-presenter/.codex/skills/remotion-best-practices',
   ),
+  videoShotcraftSkillPath: expandHome(
+    env.VIDEO_SHOTCRAFT_SKILL_PATH?.trim() || '~/.codex/skills/video-shotcraft',
+  ),
   remotionBrowserExecutable:
     env.REMOTION_BROWSER_EXECUTABLE?.trim() || '/opt/google/chrome/google-chrome',
   remotionConcurrency: Math.min(16, Math.max(1, Math.floor(number('REMOTION_CONCURRENCY', 16)))),
@@ -213,6 +216,7 @@ export const assertProductionConfiguration = (): void => {
       YTDLP_BIN: config.youtube.bin,
       AI_PRESENTER_SKILL: path.join(config.codex.skillPath, 'SKILL.md'),
       REMOTION_SKILL: path.join(config.remotionSkillPath, 'SKILL.md'),
+      VIDEO_SHOTCRAFT_SKILL: path.join(config.videoShotcraftSkillPath, 'SKILL.md'),
       INFINITE_TALK_SCRIPT: path.join(config.codex.skillPath, 'scripts', 'infinite_talk_api.py'),
       LONG_FORM_TTS_SCRIPT: path.join(config.codex.skillPath, 'scripts', 'long_form_tts.py'),
       QWEN_TTS_SCRIPT: path.join(config.codex.skillPath, 'scripts', 'qwen_cloud_tts.py'),

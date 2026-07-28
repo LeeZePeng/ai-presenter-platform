@@ -120,6 +120,12 @@ describe('buildCodexPrompt', () => {
     expect(prompt).toContain('禁止为追逐 ffprobe 平均码率反复重编码');
     expect(prompt).toContain('5 秒是系统允许的最长时长上限');
     expect(prompt).toContain('/skills/remotion-best-practices/SKILL.md');
+    expect(prompt).toContain('/skills/video-shotcraft/SKILL.md');
+    expect(prompt).toContain('/skills/video-shotcraft/gallery/api/library.json');
+    expect(prompt).toContain('out/analysis/shotcraft_plan.json');
+    expect(prompt).toContain('禁止仅凭卡名重写一个近似动画');
+    expect(prompt).toContain('原片真实演示与生成结果永远优先于镜头卡');
+    expect(prompt).toContain('禁止擅自加入 BGM/SFX');
     expect(prompt).toContain('同一帧最多只能出现一个讲解人物');
     expect(prompt).toContain('禁止通用科技 dashboard');
     expect(prompt).toContain('sceneImplementationPath');
